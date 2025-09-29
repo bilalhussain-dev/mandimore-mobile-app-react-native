@@ -10,8 +10,10 @@ import {
   Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { useNavigation } from '@react-navigation/native';
 
 const LoginScreen = () => {
+  const navigation = useNavigation(); // 👈 Hook to access navigation
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [secureText, setSecureText] = useState(true);
@@ -29,8 +31,8 @@ const LoginScreen = () => {
       <StatusBar barStyle="light-content" backgroundColor="#f1641e" />
       
       <View style={styles.header}>
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Login to continue</Text>
+        <Text style={styles.title}>  </Text>
+        <Text style={styles.subtitle}>Login to sss</Text>
       </View>
 
       <View style={styles.form}>
@@ -70,9 +72,12 @@ const LoginScreen = () => {
         </TouchableOpacity>
 
         {/* Signup Link */}
-        <TouchableOpacity style={styles.signupLink}>
+        <TouchableOpacity
+          style={styles.signupLink}
+        >
           <Text style={styles.signupText}>
-            Don't have an account? <Text style={styles.signupHighlight}>Sign Up</Text>
+            Don't have an account?{' '}
+            <Text style={styles.signupHighlight}>Sign Up</Text>
           </Text>
         </TouchableOpacity>
       </View>
