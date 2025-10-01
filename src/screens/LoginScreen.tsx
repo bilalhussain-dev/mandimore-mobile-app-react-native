@@ -9,18 +9,28 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
+import Ionicons from 'react-native-vector-icons/Ionicons'; // for RN CLI
+// import { Ionicons } from '@expo/vector-icons'; // if using Expo
 import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../../App'; // Adjust path if needed
+
+type LoginScreenNavigationProp = NativeStackNavigationProp<
+  RootStackParamList,
+  'Login'
+>;
 
 const LoginScreen = () => {
-  const navigation = useNavigation(); // 👈 Hook to access navigation
+  const navigation = useNavigation<LoginScreenNavigationProp>();
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [secureText, setSecureText] = useState(true);
 
   const handleLogin = () => {
     console.log('Email:', email, 'Password:', password);
-    // TODO: Call your Rails API for authentication
+    // 🚀 Demo login → go straight to Listings
+    navigation.navigate('Listings');
   };
 
   return (
@@ -30,15 +40,17 @@ const LoginScreen = () => {
     >
       <StatusBar barStyle="light-content" backgroundColor="#f1641e" />
       
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>  </Text>
-        <Text style={styles.subtitle}>Login to sss</Text>
+        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.subtitle}>Login to continue</Text>
       </View>
 
+      {/* Form */}
       <View style={styles.form}>
         {/* Email Field */}
         <View style={styles.inputContainer}>
-          <Icon name="mail-outline" size={20} color="#888" style={styles.icon} />
+          <Ionicons name="mail-outline" size={20} color="#888" style={styles.icon} />
           <TextInput
             placeholder="Email"
             placeholderTextColor="#888"
@@ -52,7 +64,7 @@ const LoginScreen = () => {
 
         {/* Password Field */}
         <View style={styles.inputContainer}>
-          <Icon name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
+          <Ionicons name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
           <TextInput
             placeholder="Password"
             placeholderTextColor="#888"
@@ -62,9 +74,17 @@ const LoginScreen = () => {
             onChangeText={setPassword}
           />
           <TouchableOpacity onPress={() => setSecureText(!secureText)}>
-            <Icon name={secureText ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
+            <Ionicons name={secureText ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
           </TouchableOpacity>
         </View>
+
+        {/* Forgot Password */}
+        <TouchableOpacity
+          style={styles.forgotPassword}
+          onPress={() => navigation.navigate('ForgotPassword')}
+        >
+          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+        </TouchableOpacity>
 
         {/* Login Button */}
         <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
@@ -74,11 +94,20 @@ const LoginScreen = () => {
         {/* Signup Link */}
         <TouchableOpacity
           style={styles.signupLink}
+          onPress={() => navigation.navigate('Signup')}
         >
           <Text style={styles.signupText}>
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Text style={styles.signupHighlight}>Sign Up</Text>
           </Text>
+        </TouchableOpacity>
+
+        {/* Demo Login Button */}
+        <TouchableOpacity
+          style={[styles.loginButton, { backgroundColor: '#555', marginTop: 15 }]}
+          onPress={() => navigation.navigate('Listings')}
+        >
+          <Text style={styles.loginButtonText}>Login as Guest</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -121,7 +150,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 20,
+    marginBottom: 15,
     borderWidth: 1,
     borderColor: '#ddd',
   },
@@ -132,6 +161,15 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#333',
+  },
+  forgotPassword: {
+    alignSelf: 'flex-end',
+    marginBottom: 20,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: '#f1641e',
+    fontWeight: '500',
   },
   loginButton: {
     backgroundColor: '#f1641e',
