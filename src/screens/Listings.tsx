@@ -7,74 +7,85 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
+  StatusBar,
 } from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import { Ionicons } from "@react-native-vector-icons/ionicons";
+import { useNavigation } from '@react-navigation/native';
 
 const data = [
   {
     id: '1',
     name: 'Golden Retriever',
-    price: '$500',
+    price: 'PKR 50,000',
+    category: 'Dog',
+    date: '2025-09-28',
     image: 'https://placedog.net/400/400?id=1',
   },
   {
     id: '2',
     name: 'Persian Cat',
-    price: '$350',
+    price: 'PKR 35,000',
+    category: 'Cat',
+    date: '2025-09-27',
     image: 'https://placekitten.com/400/400',
   },
   {
     id: '3',
     name: 'Parrot',
-    price: '$120',
+    price: 'PKR 12,000',
+    category: 'Bird',
+    date: '2025-09-26',
     image: 'https://picsum.photos/400/400?random=1',
   },
   {
     id: '4',
     name: 'German Shepherd',
-    price: '$600',
+    price: 'PKR 60,000',
+    category: 'Dog',
+    date: '2025-09-25',
     image: 'https://placedog.net/400/400?id=2',
   },
 ];
 
 const Listings = () => {
   const [search, setSearch] = useState('');
+  const navigation = useNavigation();
 
   const filteredData = data.filter((item) =>
     item.name.toLowerCase().includes(search.toLowerCase())
   );
 
   const renderItem = ({ item }: { item: typeof data[0] }) => (
-    <TouchableOpacity style={styles.card}>
-      <Image source={{ uri: item.image }} style={styles.image} />
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => navigation.navigate('ListingDetail' as never, { item } as never)}
+      activeOpacity={0.8}
+    >
+      <View style={styles.imageWrapper}>
+        <Image source={{ uri: item.image }} style={styles.image} />
+        <View style={styles.priceTag}>
+          <Text style={styles.priceText}>{item.price}</Text>
+        </View>
+      </View>
       <View style={styles.cardContent}>
         <Text style={styles.petName}>{item.name}</Text>
-        <Text style={styles.price}>{item.price}</Text>
+        <View style={styles.metaRow}>
+          <View style={styles.categoryBadge}>
+            <Ionicons name="paw-outline" size={12} color="#f1641e" />
+            <Text style={styles.category}>{item.category}</Text>
+          </View>
+          <Text style={styles.date}>{item.date}</Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
-      {/* Header with Search + Filter */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Pet Listings</Text>
-        <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={20} color="#888" />
-            <TextInput
-              placeholder="Search pets..."
-              placeholderTextColor="#888"
-              style={styles.searchInput}
-              value={search}
-              onChangeText={setSearch}
-            />
-          </View>
-          <TouchableOpacity style={styles.filterBtn}>
-            <Ionicons name="filter-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor="#f1641e" />
+
+      {/* Header */}
+      
 
       {/* Grid */}
       <FlatList
@@ -83,8 +94,18 @@ const Listings = () => {
         keyExtractor={(item) => item.id}
         numColumns={2}
         columnWrapperStyle={styles.row}
-        contentContainerStyle={{ paddingBottom: 20, paddingTop: 10 }}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
       />
+
+      {/* Floating Add Button */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('CreateListing' as never)}
+        activeOpacity={0.9}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
     </View>
   );
 };
@@ -98,14 +119,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   header: {
-    paddingTop: 15,
-    paddingBottom: 10,
+    backgroundColor: '#f1641e',
+    paddingTop: 50,
+    paddingBottom: 20,
+    paddingHorizontal: 15,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    elevation: 3,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
-    color: '#f1641e',
-    marginBottom: 12,
+    color: '#fff',
+    marginBottom: 16,
   },
   searchRow: {
     flexDirection: 'row',
@@ -115,12 +141,11 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#fff',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    elevation: 2,
   },
   searchInput: {
     marginLeft: 8,
@@ -130,13 +155,14 @@ const styles = StyleSheet.create({
   },
   filterBtn: {
     marginLeft: 10,
-    backgroundColor: '#f1641e',
+    backgroundColor: '#fff',
     padding: 10,
     borderRadius: 12,
     elevation: 3,
   },
   row: {
     justifyContent: 'space-between',
+    marginTop: 10,
   },
   card: {
     backgroundColor: '#fff',
@@ -151,9 +177,28 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
     overflow: 'hidden',
   },
+  imageWrapper: {
+    position: 'relative',
+  },
   image: {
     width: '100%',
-    height: 140,
+    height: 150,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  priceTag: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: '#f1641e',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  priceText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   cardContent: {
     padding: 12,
@@ -163,10 +208,44 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
-  price: {
-    fontSize: 14,
-    color: '#f1641e',
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginTop: 6,
+    alignItems: 'center',
+  },
+  categoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff5f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  category: {
+    fontSize: 12,
+    color: '#f1641e',
     fontWeight: '500',
+    marginLeft: 4,
+  },
+  date: {
+    fontSize: 12,
+    color: '#999',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 25,
+    right: 25,
+    backgroundColor: '#f1641e',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
   },
 });

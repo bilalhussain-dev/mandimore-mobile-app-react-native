@@ -9,8 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+
+import { Ionicons } from "@react-native-vector-icons/ionicons";
 
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -52,7 +52,7 @@ const SignupScreen = () => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Icon name="arrow-back" size={24} color="#fff" />
+          {/* <Ionicons name="arrow-back" size={24} color="#fff" /> */}
         </TouchableOpacity>
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.subtitle}>Sign up to get started</Text>
@@ -62,7 +62,7 @@ const SignupScreen = () => {
       <View style={styles.form}>
         {/* Name Field */}
         <View style={styles.inputContainer}>
-          <Icon name="person-outline" size={20} color="#888" style={styles.icon} />
+          <Ionicons name="person-outline" size={20} color="#888" style={styles.icon} />
           <TextInput
             placeholder="Full Name"
             placeholderTextColor="#888"
@@ -74,7 +74,7 @@ const SignupScreen = () => {
 
         {/* Email Field */}
         <View style={styles.inputContainer}>
-          <Icon name="mail-outline" size={20} color="#888" style={styles.icon} />
+          <Ionicons name="mail-outline" size={20} color="#888" style={styles.icon} />
           <TextInput
             placeholder="Email"
             placeholderTextColor="#888"
@@ -88,7 +88,7 @@ const SignupScreen = () => {
 
         {/* Password Field */}
         <View style={styles.inputContainer}>
-          <Icon name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
+          <Ionicons name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
           <TextInput
             placeholder="Password"
             placeholderTextColor="#888"
@@ -98,13 +98,13 @@ const SignupScreen = () => {
             onChangeText={setPassword}
           />
           <TouchableOpacity onPress={() => setSecureText(!secureText)}>
-            <Icon name={secureText ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
+            <Ionicons name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
           </TouchableOpacity>
         </View>
 
         {/* Confirm Password */}
         <View style={styles.inputContainer}>
-          <Icon name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
+          <Ionicons name="lock-closed-outline" size={20} color="#888" style={styles.icon} />
           <TextInput
             placeholder="Confirm Password"
             placeholderTextColor="#888"

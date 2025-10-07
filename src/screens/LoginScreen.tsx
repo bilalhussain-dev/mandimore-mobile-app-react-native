@@ -9,7 +9,10 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons'; // for RN CLI
+// import Ionicons from 'react-native-vector-icons/Ionicons'; // for RN CLI
+
+import { Ionicons } from "@react-native-vector-icons/ionicons";
+
 // import { Ionicons } from '@expo/vector-icons'; // if using Expo
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
