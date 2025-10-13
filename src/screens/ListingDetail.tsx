@@ -8,6 +8,8 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
+  Linking,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import Swiper from 'react-native-swiper';
@@ -16,181 +18,245 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 const { width } = Dimensions.get('window');
 
 const ListingDetail = () => {
-  const route = useRoute<any>();
+  const route = useRoute();
   const navigation = useNavigation();
-  const { item } = route.params;
+  const { LISTING_DETAIL } = route.params || {};
 
-  const images = [
-    item.image,
-    'https://picsum.photos/400/400?random=11',
-    'https://picsum.photos/400/400?random=12',
-  ];
+  if (!LISTING_DETAIL) return null;
+
+  const {
+    title,
+    breed,
+    description,
+    age,
+    color,
+    weight,
+    height,
+    price,
+    health_status,
+    address,
+    image_urls,
+    user,
+  } = LISTING_DETAIL;
+
+  // For image slider
+  const images = image_urls && image_urls.length > 0 ? image_urls : [];
 
   const petDetails = [
-    { label: 'Age', value: '2 years' },
-    { label: 'Sex', value: 'Male' },
-    { label: 'Color', value: 'Golden Brown' },
-    { label: 'Vaccinated', value: 'Yes' },
-    { label: 'Breed', value: 'Purebred Retriever' },
-    { label: 'Health Status', value: 'Excellent' },
+    { label: 'Breed', value: breed, icon: 'paw' },
+    { label: 'Age', value: age, icon: 'time' },
+    { label: 'Color', value: color, icon: 'color-palette' },
+    { label: 'Weight', value: weight, icon: 'fitness' },
+    { label: 'Height', value: height, icon: 'resize' },
+    { label: 'Health', value: health_status, icon: 'medical' },
   ];
 
-  const seller = {
-    name: 'Sarah Johnson',
-    avatar: 'https://i.pravatar.cc/150?img=5',
-    rating: 4.8,
-    totalListings: 12,
-    memberSince: 'Jan 2023',
-    verified: true,
+  const handleCall = () => {
+    if (user?.mobile_number) Linking.openURL(`tel:${user.mobile_number}`);
   };
 
-  const related = [
-    {
-      id: 'r1',
-      name: 'Siamese Cat',
-      price: '$300',
-      category: 'Cats',
-      image: 'https://placekitten.com/401/401',
-    },
-    {
-      id: 'r2',
-      name: 'Bulldog',
-      price: '$550',
-      category: 'Dogs',
-      image: 'https://placedog.net/401/401?id=10',
-    },
-    {
-      id: 'r3',
-      name: 'Cockatiel',
-      price: '$90',
-      category: 'Birds',
-      image: 'https://picsum.photos/401/401?random=13',
-    },
-  ];
+  const handleWhatsApp = () => {
+    if (user?.whatsapp_number) {
+      const phone = user.whatsapp_number.replace('+', '');
+      const message = encodeURIComponent(
+        `Hi ${user.first_name}, I'm interested in your listing "${title}" on Mandimore.`,
+      );
+      Linking.openURL(`https://wa.me/${phone}?text=${message}`);
+    }
+  };
 
-  const renderRelated = ({ item: rel }: { item: typeof related[0] }) => (
-    <TouchableOpacity style={styles.relatedCard}>
-      <Image source={{ uri: rel.image }} style={styles.relatedImage} />
-      <View style={styles.relatedInfo}>
-        <Text style={styles.relatedName} numberOfLines={1}>
-          {rel.name}
-        </Text>
-        <Text style={styles.relatedPrice}>{rel.price}</Text>
-        <Text style={styles.relatedCategory}>{rel.category}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `Check out this listing: ${title} - PKR ${parseFloat(
+          price,
+        ).toLocaleString()} on Mandimore!`,
+        title: title,
+      });
+    } catch (error) {
+      console.log('Share error:', error);
+    }
+  };
+
+  const seller = {
+    name: `${user?.first_name || ''} ${user?.last_name || ''}`,
+    avatar: user?.user_avatar_url || 'https://i.pravatar.cc/150?img=5',
+    verified: user?.verified,
+    mobile: user?.mobile_number,
+    whatsapp: user?.whatsapp_number,
+    username: user?.username,
+  };
+
+  const stripHtml = html => {
+    return html?.replace(/<[^>]*>?/gm, '').trim() || 'No description available';
+  };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.headerBtn}
+          onPress={() => navigation.goBack()}
+        >
           <Ionicons name="arrow-back" size={22} color="#333" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.headerBtn}>
-          <Ionicons name="heart-outline" size={22} color="#333" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Image Slider */}
-      <Swiper autoplay height={300} dotStyle={styles.dot} activeDotStyle={styles.activeDot}>
-        {images.map((img, i) => (
-          <View key={i} style={styles.slide}>
-            <Image source={{ uri: img }} style={styles.image} />
-          </View>
-        ))}
-      </Swiper>
-
-      {/* Main Info */}
-      <View style={styles.content}>
-        <Text style={styles.title}>{item.name}</Text>
-        <View style={styles.categoryBadge}>
-          <Text style={styles.categoryText}>{item.category}</Text>
-        </View>
-        <Text style={styles.price}>{item.price}</Text>
-
-        {/* Table Details */}
-        <View style={styles.detailsTable}>
-          {petDetails.map((detail, index) => (
-            <View
-              key={index}
-              style={[
-                styles.tableRow,
-                { backgroundColor: index % 2 === 0 ? '#fff' : '#f9f9f9' },
-              ]}>
-              <Text style={styles.tableLabel}>{detail.label}</Text>
-              <Text style={styles.tableValue}>{detail.value}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Description */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Description</Text>
-          <Text style={styles.description}>
-            This is a beautiful {item.category.toLowerCase()} named {item.name}. Well-behaved, vaccinated, and ready for a new home. 
-            Healthy, friendly, and social with other pets.
-          </Text>
-        </View>
-
-        {/* Seller Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Seller Information</Text>
-          <TouchableOpacity
-            style={styles.sellerCard}
-            onPress={() => navigation.navigate('Profile' as never)}>
-            <Image source={{ uri: seller.avatar }} style={styles.sellerAvatar} />
-            <View style={styles.sellerInfo}>
-              <View style={styles.sellerNameRow}>
-                <Text style={styles.sellerName}>{seller.name}</Text>
-                {seller.verified && (
-                  <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
-                )}
-              </View>
-              <View style={styles.sellerStats}>
-                <Ionicons name="star" size={14} color="#FFD700" />
-                <Text style={styles.sellerRating}>{seller.rating}</Text>
-                <Text style={styles.sellerDivider}>•</Text>
-                <Text style={styles.sellerListings}>{seller.totalListings} listings</Text>
-              </View>
-              <Text style={styles.sellerMember}>Member since {seller.memberSince}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.headerBtn} onPress={handleShare}>
+            <Ionicons name="share-social-outline" size={20} color="#333" />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.headerBtn, { marginLeft: 8 }]}>
+            <Ionicons name="heart-outline" size={20} color="#333" />
           </TouchableOpacity>
         </View>
-
-        {/* Related */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Similar Listings</Text>
-          <FlatList
-            horizontal
-            data={related}
-            renderItem={renderRelated}
-            keyExtractor={(item) => item.id}
-            showsHorizontalScrollIndicator={false}
-          />
-        </View>
       </View>
 
-      {/* Bottom Buttons */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        style={styles.scrollView}
+      >
+        {/* Image Slider */}
+        <View style={styles.imageContainer}>
+          <Swiper
+            autoplay={false}
+            height={320}
+            dotStyle={styles.dot}
+            activeDotStyle={styles.activeDot}
+            paginationStyle={styles.pagination}
+          >
+            {images.map((img, i) => (
+              <View key={i} style={styles.slide}>
+                <Image source={{ uri: img }} style={styles.image} />
+              </View>
+            ))}
+          </Swiper>
+
+          {/* Image Counter Badge */}
+          <View style={styles.imageCountBadge}>
+            <Ionicons name="images" size={14} color="#fff" />
+            <Text style={styles.imageCountText}>{images.length}</Text>
+          </View>
+        </View>
+
+        {/* Main Content Card */}
+        <View style={styles.contentCard}>
+          {/* Title & Price Section */}
+          <View style={styles.titleSection}>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>{title}</Text>
+            </View>
+            <View style={styles.priceRow}>
+              <View>
+                <Text style={styles.priceLabel}>Price</Text>
+                <Text style={styles.price}>
+                  PKR {parseFloat(price).toLocaleString()}
+                </Text>
+              </View>
+              {health_status === 'excellent' && (
+                <View style={styles.healthBadge}>
+                  <Ionicons name="shield-checkmark" size={14} color="#4CAF50" />
+                  <Text style={styles.healthText}>Excellent Health</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Location */}
+          <View style={styles.locationContainer}>
+            <Ionicons name="location" size={18} color="#f1641e" />
+            <Text style={styles.locationText}>{address}</Text>
+          </View>
+
+          {/* Details Grid */}
+          <View style={styles.detailsSection}>
+            <Text style={styles.sectionTitle}>Details</Text>
+            <View style={styles.detailsGrid}>
+              {petDetails.map((detail, index) => (
+                <View key={index} style={styles.detailCard}>
+                  <View style={styles.detailIconContainer}>
+                    <Ionicons name={detail.icon} size={18} color="#f1641e" />
+                  </View>
+                  <Text style={styles.detailLabel}>{detail.label}</Text>
+                  <Text style={styles.detailValue}>
+                    {detail.value || 'N/A'}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Description */}
+          <View style={styles.descriptionSection}>
+            <Text style={styles.sectionTitle}>About</Text>
+            <Text style={styles.description}>{stripHtml(description)}</Text>
+          </View>
+
+          {/* Seller Card */}
+          <View style={styles.sellerSection}>
+            <Text style={styles.sectionTitle}>Seller</Text>
+            <View style={styles.sellerCard}>
+              <Image
+                source={{ uri: seller.avatar }}
+                style={styles.sellerAvatar}
+              />
+              <View style={styles.sellerInfo}>
+                <View style={styles.sellerNameRow}>
+                  <Text style={styles.sellerName}>{seller.name}</Text>
+                  {seller.verified && (
+                    <View style={styles.verifiedBadge}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={16}
+                        color="#f1641e"
+                      />
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.sellerUsername}>@{seller.username}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.messageIconBtn}
+                onPress={() =>
+                  navigation.navigate('Profile', { PROFILE: { id: user.id } })
+                }
+              >
+                <Ionicons
+                  name="chatbubble-ellipses"
+                  size={20}
+                  color="#f1641e"
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Bottom Action Bar */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.callBtn}>
-          <Ionicons name="call-outline" size={20} color="#fff" />
+        <TouchableOpacity style={styles.callBtn} onPress={handleCall}>
+          <Ionicons name="call" size={20} color="#fff" />
           <Text style={styles.callText}>Call</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.contactBtn}>
-          <Text style={styles.contactText}>Contact Seller</Text>
+        <TouchableOpacity style={styles.whatsappBtn} onPress={handleWhatsApp}>
+          <Ionicons name="logo-whatsapp" size={20} color="#fff" />
+          <Text style={styles.whatsappText}>WhatsApp</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+    </View>
   );
 };
 
 export default ListingDetail;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
+  scrollView: {
+    flex: 1,
+  },
   header: {
     position: 'absolute',
     top: 40,
@@ -198,113 +264,297 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 15,
+    alignItems: 'center',
+    paddingHorizontal: 16,
     zIndex: 10,
   },
+  headerRight: {
+    flexDirection: 'row',
+  },
   headerBtn: {
-    backgroundColor: '#fff',
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 3,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  slide: { flex: 1 },
-  image: { width, height: 300, resizeMode: 'cover' },
-  dot: { backgroundColor: 'rgba(255,255,255,0.5)', width: 8, height: 8, borderRadius: 4 },
-  activeDot: { backgroundColor: '#f1641e', width: 18, height: 8, borderRadius: 4 },
-  content: { padding: 20, backgroundColor: '#fff' },
-  title: { fontSize: 24, fontWeight: '700', color: '#333' },
-  categoryBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#fff5f0',
-    borderColor: '#f1641e',
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginVertical: 8,
+  imageContainer: {
+    position: 'relative',
   },
-  categoryText: { color: '#f1641e', fontSize: 13, fontWeight: '600' },
-  price: { fontSize: 26, color: '#f1641e', fontWeight: '700', marginBottom: 14 },
-  detailsTable: {
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 20,
+  slide: {
+    flex: 1,
   },
-  tableRow: {
+  image: {
+    width,
+    height: 320,
+    resizeMode: 'cover',
+  },
+  pagination: {
+    bottom: 16,
+  },
+  dot: {
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  activeDot: {
+    backgroundColor: '#f1641e',
+    width: 24,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  imageCountBadge: {
+    position: 'absolute',
+    bottom: 24,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  imageCountText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  contentCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: -10,
+    paddingTop: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+  },
+  titleSection: {
+    marginBottom: 16,
+  },
+  titleRow: {
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    lineHeight: 32,
+  },
+  priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    alignItems: 'center',
   },
-  tableLabel: { fontSize: 14, color: '#555', fontWeight: '500' },
-  tableValue: { fontSize: 14, color: '#222', fontWeight: '600' },
-  section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 10 },
-  description: { fontSize: 15, color: '#666', lineHeight: 22 },
+  priceLabel: {
+    fontSize: 13,
+    color: '#888',
+    marginBottom: 4,
+  },
+  price: {
+    fontSize: 28,
+    color: '#f1641e',
+    fontWeight: '700',
+  },
+  healthBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f8f4',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  healthText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4CAF50',
+    marginLeft: 4,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff5f0',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#ffe0d1',
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#333',
+    marginLeft: 8,
+    flex: 1,
+    fontWeight: '500',
+  },
+  detailsSection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+  detailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  detailCard: {
+    width: '31%',
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  detailIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff5f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: '#888',
+    marginBottom: 4,
+  },
+  detailValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+  },
+  descriptionSection: {
+    marginBottom: 24,
+  },
+  description: {
+    fontSize: 15,
+    color: '#555',
+    lineHeight: 24,
+  },
+  sellerSection: {
+    marginBottom: 16,
+  },
   sellerCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f9f9f9',
-    padding: 14,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#eee',
   },
-  sellerAvatar: { width: 60, height: 60, borderRadius: 30 },
-  sellerInfo: { flex: 1, marginLeft: 10 },
-  sellerNameRow: { flexDirection: 'row', alignItems: 'center' },
-  sellerName: { fontSize: 16, fontWeight: '700', marginRight: 6, color: '#333' },
-  sellerStats: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  sellerRating: { fontSize: 13, marginLeft: 4, fontWeight: '600', color: '#333' },
-  sellerDivider: { fontSize: 13, color: '#ccc', marginHorizontal: 6 },
-  sellerListings: { fontSize: 13, color: '#666' },
-  sellerMember: { fontSize: 12, color: '#999', marginTop: 2 },
-  relatedCard: {
-    width: 160,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#eee',
+  sellerAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: '#f1641e',
   },
-  relatedImage: { width: '100%', height: 110, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
-  relatedInfo: { padding: 10 },
-  relatedName: { fontSize: 15, fontWeight: '600', color: '#333' },
-  relatedPrice: { fontSize: 14, fontWeight: '700', color: '#f1641e' },
-  relatedCategory: { fontSize: 12, color: '#888' },
-  bottomBar: {
+  sellerInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  sellerNameRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  sellerName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  verifiedBadge: {
+    marginLeft: 6,
+  },
+  sellerUsername: {
+    fontSize: 13,
+    color: '#777',
+    marginBottom: 4,
+  },
+  sellerContactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sellerContact: {
+    fontSize: 13,
+    color: '#555',
+    marginLeft: 4,
+  },
+  messageIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 2,
+  },
+  bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+    borderColor: '#eee',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
   callBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#f1641e',
-    borderRadius: 10,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    marginRight: 10,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginRight: 8,
+    elevation: 2,
   },
-  callText: { color: '#fff', marginLeft: 6, fontWeight: '600' },
-  contactBtn: {
+  callText: {
+    color: '#fff',
+    marginLeft: 8,
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  whatsappBtn: {
     flex: 1,
-    backgroundColor: '#f1641e',
-    borderRadius: 10,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#25D366',
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginLeft: 8,
+    elevation: 2,
   },
-  contactText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  whatsappText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
 });
