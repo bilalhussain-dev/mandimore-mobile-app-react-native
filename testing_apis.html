@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <script>
+      const API_URL = 'https://mandimore.com/v1/fetch_all_listings';
+
+      fetch(API_URL)
+        .then(response => {
+          return response.json();
+        })
+        .then(data => {
+          console.log({ data: data });
+        })
+        .catch(err => {
+          console.log('Something went wrong!', err);
+        });
+    </script>
+  </body>
+</html>

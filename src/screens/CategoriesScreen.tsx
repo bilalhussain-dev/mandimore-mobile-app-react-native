@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,52 +6,151 @@ import {
   FlatList,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 const { width } = Dimensions.get('window');
 
-const categories = [
-  { id: '1', name: 'Dogs', emoji: '🐶', count: 4 },
-  { id: '2', name: 'Cats', emoji: '🐱', count: 2 },
-  { id: '3', name: 'Birds', emoji: '🐦', count: 1 },
-  { id: '4', name: 'Fish', emoji: '🐠', count: 3 },
-  { id: '5', name: 'Rabbits', emoji: '🐰', count: 1 },
-  { id: '6', name: 'Hamsters', emoji: '🐹', count: 2 },
-  { id: '7', name: 'Turtles', emoji: '🐢', count: 1 },
-  { id: '8', name: 'Horses', emoji: '🐴', count: 2 },
-  { id: '9', name: 'Parrots', emoji: '🦜', count: 5 },
-  { id: '10', name: 'Reptiles', emoji: '🦎', count: 1 },
-  { id: '12', name: 'Frogs', emoji: '🐸', count: 1 },
-  { id: '13', name: 'Guinea Pigs', emoji: '🐹', count: 2 },
-  { id: '14', name: 'Ferrets', emoji: '🦦', count: 1 },
-  { id: '15', name: 'Chickens', emoji: '🐔', count: 3 },
-  { id: '16', name: 'Cows', emoji: '🐄', count: 1 },
-  { id: '17', name: 'Sheep', emoji: '🐑', count: 2 },
-  { id: '18', name: 'Goats', emoji: '🐐', count: 2 },
-  { id: '19', name: 'Ducks', emoji: '🦆', count: 6 },
-  { id: '20', name: 'Pigeons', emoji: '🕊️', count: 4 },
-];
+// Emoji mapping for categories
+const categoryEmojis: { [key: string]: string } = {
+  'Dogs': '🐶',
+  'Cats': '🐱',
+  'Birds': '🐦',
+  'Fish': '🐠',
+  'Rabbits': '🐰',
+  'Hamsters': '🐹',
+  'Turtles': '🐢',
+  'Horses': '🐴',
+  'Parrots': '🦜',
+  'Pigeons': '🕊️',
+  'Ducks': '🦆',
+  'Chickens': '🐔',
+  'Hens': '🐔',
+  'Cows': '🐄',
+  'Sheep': '🐑',
+  'Goats': '🐐',
+  'Buffaloes': '🐃',
+  'Calves': '🐄',
+  'Camels': '🐫',
+  'Donkeys': '🫏',
+  'Mules': '🐴',
+  'Roosters': '🐓',
+  'Turkeys': '🦃',
+  'Quails': '🐦',
+  'Peacocks': '🦚',
+  'Pheasants': '🐦',
+  'Love Birds': '🦜',
+  'Cockatiels': '🦜',
+  'Macaws': '🦜',
+  'Finches': '🐦',
+  'Pet Food & Accessories': '🦴',
+  'Livestock Feed': '🌾',
+  'Animal Medicines': '💊',
+  'Pet Training & Services': '🎓',
+  'Animal Transport': '🚚',
+  'Animal Adoption': '🏠',
+  'Missing & Lost Pets': '🔍',
+  'Animal for Sacrifice (Qurbani)': '🐑',
+};
+
+interface Category {
+  id: number;
+  name: string;
+  short_info: string | null;
+  slug: string;
+  products_count: number;
+  product_count: number;
+}
+
+interface ApiResponse {
+  code: number;
+  message: string;
+  data: Category[];
+}
 
 const CategoriesScreen = () => {
-  const renderItem = ({ item }: { item: typeof categories[0] }) => (
-    <TouchableOpacity style={styles.card}>
-      {/* Count badge */}
-      <View style={styles.badge}>
-        <Text style={styles.badgeText}>{item.count}</Text>
-      </View>
-      <Text style={styles.emoji}>{item.emoji}</Text>
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const navigation = useNavigation();
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  const fetchCategories = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch('https://mandimore.com/v1/fetch_all_categories');
+      const json: ApiResponse = await response.json();
+      
+      if (json.code === 200 && json.data) {
+        // Sort by product count (descending) to show categories with items first
+        const sortedCategories = json.data.sort((a, b) => b.product_count - a.product_count);
+        setCategories(sortedCategories);
+      } else {
+        setError('Failed to load categories');
+      }
+    } catch (err) {
+      setError('Unable to fetch categories. Please try again.');
+      console.error('Error fetching categories:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getEmojiForCategory = (name: string): string => {
+    return categoryEmojis[name] || '🐾';
+  };
+
+  const renderItem = ({ item }: { item: Category }) => (
+    <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Category', { category: item })}>
+      {/* Count badge - only show if count > 0 */}
+      {item.product_count > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{item.product_count}</Text>
+        </View>
+      )}
+      <Text style={styles.emoji}>{getEmojiForCategory(item.name)}</Text>
       <Text style={styles.name}>{item.name}</Text>
     </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#f1641e" />
+        <Text style={styles.loadingText}>Loading categories...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.errorText}>😕 {error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchCategories}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.header}>🐾 Browse Categories</Text>
-      <Text style={styles.subHeader}>Find what you’re looking for by category</Text>
+      <Text style={styles.subHeader}>
+        Find what you're looking for by category ({categories.length} categories)
+      </Text>
       <FlatList
         data={categories}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id.toString()}
         numColumns={2}
         columnWrapperStyle={styles.row}
         contentContainerStyle={{ paddingBottom: 20 }}
@@ -68,6 +167,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f7f7f7',
     paddingTop: 20,
     paddingHorizontal: 16,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     fontSize: 22,
@@ -92,7 +195,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flex: 1,
     margin: 8,
-    maxWidth: (width - 48) / 2, // 2 per row
+    maxWidth: (width - 48) / 2,
     position: 'relative',
     elevation: 3,
     shadowColor: '#000',
@@ -123,5 +226,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '700',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#f1641e',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -1,58 +1,128 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import { StatusBar, StyleSheet } from 'react-native';
+import React from 'react';
+import { StatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Ionicons } from "@react-native-vector-icons/ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useState, useEffect } from 'react';
 
-import LoginScreen from './src/screens/LoginScreen';
-import SignupScreen from './src/screens/SignupScreen';
-import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
+// Screens
 import Listings from './src/screens/Listings';
 import ListingDetail from './src/screens/ListingDetail';
 import CategoriesScreen from './src/screens/CategoriesScreen';
 import Profile from './src/screens/Profile';
-import CreateListing from './src/screens/CreateListing';
 import HomeScreen from './src/screens/HomeScreen';
+import LoginScreen from './src/screens/LoginScreen';
+import Category from './src/screens/Category';
+import FavoritesScreen from './src/screens/FavoritesScreen';
+import CreateListing from './src/screens/CreateListing';
 
-// Define your navigation types
+// Define types
 export type RootStackParamList = {
-  Home: undefined,
-  Login: undefined,
-  Signup: undefined,
-  ForgotPassword: undefined,
-  Listings: undefined,
-  ListingDetail: undefined,
-  Categories: undefined, 
-  Profile: undefined,
-  CreateListing: undefined
+  Login: undefined;
+  Tabs: undefined;
+  CreateListing: undefined;
+  ListingDetail: { id?: number };
+  Category: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const Tab = createBottomTabNavigator();
 
+// --- Bottom Tabs Layout ---
+function BottomTabs() {
+  const [userId, setUserId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const userData = await AsyncStorage.getItem("userData");
+        if (userData) {
+          const parsed = JSON.parse(userData);
+          setUserId(parsed.id);
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return null; // or a loading spinner
+
+  return (
+    <Tab.Navigator
+      initialRouteName="Home"
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarShowLabel: true,
+        tabBarActiveTintColor: '#f1641e',
+        tabBarInactiveTintColor: '#999',
+        tabBarStyle: {
+          height: 60,
+          borderTopWidth: 0.5,
+          borderTopColor: '#eee',
+          backgroundColor: '#fff',
+          paddingBottom: 5,
+        },
+        tabBarIcon: ({ color }) => {
+          let iconName = 'home-outline';
+          switch (route.name) {
+            case 'Home':
+              iconName = 'home-outline';
+              break;
+            case 'Listings':
+              iconName = 'list-outline';
+              break;
+            case 'Categories':
+              iconName = 'grid-outline';
+              break;
+            case 'Favorites':
+              iconName = 'heart-outline';
+              break;
+            case 'Profile':
+              iconName = 'person-outline';
+              break;
+          }
+          return <Ionicons name={iconName} size={24} color={color} />;
+        },
+      })}
+    >
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Listings" component={Listings} />
+      <Tab.Screen name="Categories" component={CategoriesScreen} />
+      <Tab.Screen 
+        name="Favorites" 
+        component={FavoritesScreen} 
+        initialParams={{ userId: userId || 0 }}
+      />
+      <Tab.Screen 
+        name="Profile" 
+        component={Profile}
+        initialParams={{ PROFILE: { id: userId || 0 } }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+// --- App with Stack + Tabs ---
 function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer>
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
         <Stack.Navigator
           initialRouteName="Login"
-          screenOptions={{
-            headerShown: true, // Hide header since your screens have custom headers
-          }}
+          screenOptions={{ headerShown: false }}
         >
-          <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="Signup" component={SignupScreen} />
-          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-          <Stack.Screen name="Listings" component={Listings} />
+          <Stack.Screen name="Tabs" component={BottomTabs} />
           <Stack.Screen name="ListingDetail" component={ListingDetail} />
-          <Stack.Screen name="Categories" component={CategoriesScreen} />
-          <Stack.Screen name="Profile" component={Profile} />
+          <Stack.Screen name="Category" component={Category} />
           <Stack.Screen name="CreateListing" component={CreateListing} />
         </Stack.Navigator>
       </NavigationContainer>

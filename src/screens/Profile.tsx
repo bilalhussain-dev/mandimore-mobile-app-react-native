@@ -1,368 +1,614 @@
-// Profile.tsx
-import React, { useEffect, useState } from 'react';
+// ProfileScreen.tsx
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  Image,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Dimensions,
+  ScrollView,
   ActivityIndicator,
-  StatusBar,
-} from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
-import axios from 'axios';
-import { useRoute, useNavigation } from '@react-navigation/native';
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  RefreshControl,
+  Alert,
+  FlatList,
+  Dimensions,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import { Ionicons } from "@react-native-vector-icons/ionicons";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import LinearGradient from "react-native-linear-gradient";
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 30) / 2;
-const FALLBACK_AVATAR = 'https://via.placeholder.com/300x300.png?text=avatar';
-const FALLBACK_IMAGE = 'https://via.placeholder.com/400x300.png?text=image';
+const PRIMARY_COLOR = "#f1641e";
+const { width } = Dimensions.get("window");
 
-const Profile = () => {
-  const route = useRoute();
-  const navigation = useNavigation();
-  const { PROFILE } = route.params || {};
-  const [userData, setUserData] = useState<any>(null);
+const ProfileScreen = () => {
+  const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'listings' | 'about'>('listings');
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const navigation = useNavigation();
+  const route = useRoute<any>();
+  const userId = route.params?.PROFILE?.id;
+
+  const fetchProfile = async () => {
+    try {
+      const token = await AsyncStorage.getItem("authToken");
+      const response = await axios.get(
+        `https://mandimore.com/v1/user_profile/${userId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          },
+        }
+      );
+      setProfile(response.data.data);
+    } catch (error: any) {
+      console.log("Error fetching profile:", error.response?.data || error);
+      Alert.alert("Error", "Failed to load profile data.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const controller = new AbortController();
-    const fetchUserProfile = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const userId = PROFILE?.id;
-        if (!userId) {
-          throw new Error('User ID missing (navigation param PROFILE.id).');
-        }
-        const resp = await axios.get(
-          `https://mandimore.com/v1/user_profile/${userId}`,
-          { signal: (controller as any).signal } // axios doesn't accept AbortSignal in older versions; harmless fallback
-        );
-        if (resp?.data?.code === 200) {
-          setUserData(resp.data.data || null);
-        } else {
-          setUserData(null);
-          setError(resp?.data?.message || 'Failed to fetch profile');
-        }
-      } catch (err: any) {
-        if (axios.isCancel?.(err)) return; // cancelled
-        console.error('Profile fetch error', err);
-        setError(err?.message || 'Error fetching user profile');
-        setUserData(null);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (userId) fetchProfile();
+  }, [userId]);
 
-    fetchUserProfile();
+  const handleLogout = async () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            await AsyncStorage.removeItem("authToken");
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "Login" as never }],
+            });
+          },
+        },
+      ]
+    );
+  };
 
-    return () => {
-      try {
-        controller.abort();
-      } catch (e) {}
-    };
-  }, [PROFILE]);
-
-  // Loading / error states
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#f1641e" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
+        <ActivityIndicator size="large" color={PRIMARY_COLOR} />
+        <Text style={styles.loadingText}>Loading your profile...</Text>
       </View>
     );
   }
 
-  if (!userData) {
+  if (!profile) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>{error || 'User not found'}</Text>
+        <Ionicons name="person-circle-outline" size={80} color="#ccc" />
+        <Text style={styles.noDataText}>No profile data found.</Text>
       </View>
     );
   }
 
-  // Safe getters
-  const avatarUri = userData.user_avatar_url || FALLBACK_AVATAR;
-  const products = Array.isArray(userData.products) ? userData.products : [];
-
-  // Listing card (used by FlatList)
-  const renderListingCard = ({ item }: any) => {
-    const uri = (item.image_urls && item.image_urls[0]) || FALLBACK_IMAGE;
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        activeOpacity={0.9}
-        onPress={() => navigation.navigate('ListingDetail', { LISTING_DETAIL: item })}
-      >
-        <View style={styles.imageContainer}>
-          <Image source={{ uri }} style={styles.image} resizeMode="cover" />
-          <TouchableOpacity style={styles.heartBtn}>
-            <Ionicons name="heart-outline" size={18} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.cardContent}>
-          <Text style={styles.title} numberOfLines={2}>
-            {item.title || 'Untitled'}
-          </Text>
-
-          <Text style={styles.price}>
-            {item.price ? `₨ ${parseFloat(item.price).toLocaleString('en-PK')}` : 'Price N/A'}
-          </Text>
-
-          <View style={styles.detailsRow}>
-            <Ionicons name="paw-outline" size={12} color="#999" />
-            <Text style={styles.detailText} numberOfLines={1}>
-              {item.breed || 'Unknown'}
-            </Text>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  // Header component for the FlatList (profile info + tabs)
-  const ListHeader = () => (
-    <>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <View style={{ width: 22 }} />
-      </View>
-
-      <View style={styles.profileCard}>
-        <Image source={{ uri: avatarUri }} style={styles.avatar} />
-
-        <View style={styles.userInfo}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={styles.userName}>
-              {`${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.username || 'Seller'}
-            </Text>
-            {userData.verified && (
-              <Ionicons name="checkmark-circle" size={16} color="#4CAF50" style={{ marginLeft: 8 }} />
-            )}
-          </View>
-
-          {userData.username ? <Text style={styles.userHandle}>@{userData.username}</Text> : null}
-          {userData.email ? <Text style={styles.userEmail}>{userData.email}</Text> : null}
-
-          {/* quick actions */}
-          <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.msgBtn}>
-              <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" />
-              <Text style={styles.msgBtnText}>Message</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.callBtn}>
-              <Ionicons name="call-outline" size={16} color="#f1641e" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'listings' && styles.activeTab]}
-          onPress={() => setActiveTab('listings')}
-        >
-          <Text style={[styles.tabText, activeTab === 'listings' && styles.activeTabText]}>
-            Listings ({products.length})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'about' && styles.activeTab]}
-          onPress={() => setActiveTab('about')}
-        >
-          <Text style={[styles.tabText, activeTab === 'about' && styles.activeTabText]}>About</Text>
-        </TouchableOpacity>
-      </View>
-    </>
-  );
-
-  // Footer component to show About info when About tab active
-  const ListFooter = () => {
-    if (activeTab === 'listings') return <View style={{ height: 20 }} />;
-    return (
-      <View style={styles.aboutCard}>
-        <Text style={styles.aboutTitle}>About</Text>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="call-outline" size={16} color="#f1641e" />
-          <Text style={styles.infoText}>{userData.mobile_number || 'N/A'}</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
-          <Text style={styles.infoText}>{userData.whatsapp_number || 'N/A'}</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="location-outline" size={16} color="#666" />
-          <Text style={styles.infoText}>{userData.location || 'Location not provided'}</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="shield-checkmark-outline" size={16} color="#4CAF50" />
-          <Text style={styles.infoText}>{userData.verified ? 'Verified user' : 'Not verified'}</Text>
-        </View>
-      </View>
-    );
-  };
+  const products = profile.products || [];
 
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#fff" barStyle="dark-content" />
-
-      <FlatList
-        data={activeTab === 'listings' ? products : []}
-        renderItem={renderListingCard}
-        keyExtractor={(item) => String(item.id)}
-        numColumns={2}
-        ListHeaderComponent={ListHeader}
-        ListFooterComponent={ListFooter}
-        contentContainerStyle={styles.listContent}
-        columnWrapperStyle={styles.row}
+      <ScrollView
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          activeTab === 'listings' ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="cube-outline" size={48} color="#ddd" />
-              <Text style={styles.emptyText}>No listings yet</Text>
-            </View>
-          ) : null
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchProfile();
+            }}
+            colors={[PRIMARY_COLOR]}
+          />
         }
-      />
+      >
+        {/* Header Section */}
+        <LinearGradient
+          colors={[PRIMARY_COLOR, "#ff8c4c"]}
+          style={styles.headerGradient}
+        >
+          <View style={styles.avatarContainer}>
+            <Image
+              source={{
+                uri:
+                  profile.user_avatar_url ||
+                  "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+              }}
+              style={styles.avatar}
+            />
+            {profile.verified && (
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+              </View>
+            )}
+          </View>
+          <Text style={styles.name}>
+            {profile.first_name} {profile.last_name}
+          </Text>
+          <Text style={styles.username}>@{profile.username}</Text>
+          <Text style={styles.email}>{profile.email}</Text>
+
+          {/* Stats Row */}
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{products.length}</Text>
+              <Text style={styles.statLabel}>Listings</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>
+                {profile.verified ? "Verified" : "Unverified"}
+              </Text>
+              <Text style={styles.statLabel}>Status</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* Info Section */}
+        <View style={styles.infoCard}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="information-circle" size={22} color={PRIMARY_COLOR} />
+            <Text style={styles.sectionTitle}>Contact Information</Text>
+          </View>
+          <InfoRow
+            icon="call"
+            label="Mobile"
+            value={profile.mobile_number}
+            iconBg="#e3f2fd"
+            iconColor="#2196F3"
+          />
+          <InfoRow
+            icon="logo-whatsapp"
+            label="WhatsApp"
+            value={profile.whatsapp_number}
+            iconBg="#e8f5e9"
+            iconColor="#25D366"
+          />
+          <InfoRow
+            icon="mail"
+            label="Email"
+            value={profile.email}
+            iconBg="#fff3e0"
+            iconColor="#FF9800"
+          />
+        </View>
+
+        {/* Products Section */}
+        <View style={styles.productsContainer}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="grid" size={22} color={PRIMARY_COLOR} />
+            <Text style={styles.sectionTitle}>My Listings</Text>
+          </View>
+
+          {products.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="paw-outline" size={64} color="#ddd" />
+              <Text style={styles.emptyStateTitle}>No Listings Yet</Text>
+              <Text style={styles.emptyStateText}>
+                You haven't posted any listings yet. Start selling your pets today!
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={products}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <ProductCard
+                  product={item}
+                  navigation={navigation}
+                  userProfile={profile}
+                />
+              )}
+              horizontal={false}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </View>
+
+        {/* Logout */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={22} color="#fff" />
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   );
 };
 
-export default Profile;
+// Info Row Component
+const InfoRow = ({ icon, label, value, iconBg, iconColor }: any) => (
+  <View style={styles.infoRow}>
+    <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
+      <Ionicons name={icon} size={18} color={iconColor} />
+    </View>
+    <View style={styles.infoContent}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value || "Not provided"}</Text>
+    </View>
+  </View>
+);
 
-/* Styles */
+// Product Card Component
+const ProductCard = ({ product, navigation, userProfile }: any) => {
+  const images = product.image_urls || [];
+  const mainImage = images.length > 0 ? images[0] : "https://via.placeholder.com/400x300?text=No+Image";
+
+  // Create enriched product data with user info
+  const enrichedProduct = {
+    ...product,
+    user: {
+      id: userProfile.id,
+      first_name: userProfile.first_name,
+      last_name: userProfile.last_name,
+      username: userProfile.username,
+      mobile_number: userProfile.mobile_number,
+      whatsapp_number: userProfile.whatsapp_number,
+      user_avatar_url: userProfile.user_avatar_url,
+      verified: userProfile.verified,
+      email: userProfile.email,
+    },
+  };
+
+  return (
+    <TouchableOpacity
+      style={styles.productCard}
+      onPress={() =>
+        navigation.navigate("ListingDetail", { LISTING_DETAIL: enrichedProduct })
+      }
+      activeOpacity={0.7}
+    >
+      <View style={styles.imageWrapper}>
+        <Image source={{ uri: mainImage }} style={styles.productImage} />
+        {images.length > 1 && (
+          <View style={styles.imageCountBadge}>
+            <Ionicons name="images" size={12} color="#fff" />
+            <Text style={styles.imageCountText}>{images.length}</Text>
+          </View>
+        )}
+        {product.health_status === "excellent" && (
+          <View style={styles.healthBadgeCard}>
+            <Ionicons name="shield-checkmark" size={12} color="#4CAF50" />
+          </View>
+        )}
+      </View>
+
+      <View style={styles.productDetails}>
+        <Text style={styles.productTitle} numberOfLines={2}>
+          {product.title}
+        </Text>
+        
+        <View style={styles.productMeta}>
+          <View style={styles.productMetaItem}>
+            <Ionicons name="paw" size={14} color="#666" />
+            <Text style={styles.productBreed} numberOfLines={1}>
+              {product.breed || "Mixed Breed"}
+            </Text>
+          </View>
+          {product.age && (
+            <View style={styles.productMetaItem}>
+              <Ionicons name="time" size={14} color="#666" />
+              <Text style={styles.productAge}>{product.age}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.productFooter}>
+          <Text style={styles.productPrice}>
+            Rs. {parseFloat(product.price).toLocaleString()}
+          </Text>
+          <View style={styles.viewDetailsBtn}>
+            <Text style={styles.viewDetailsText}>View</Text>
+            <Ionicons name="arrow-forward" size={14} color={PRIMARY_COLOR} />
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 10, color: '#555' },
-  errorText: { color: '#f1641e', fontSize: 16 },
-
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 10,
-    backgroundColor: '#fff',
-    elevation: 2,
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  scrollView: { flex: 1 },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
   },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#333' },
+  loadingText: { marginTop: 12, color: "#666", fontSize: 15 },
+  noDataText: { marginTop: 16, color: "#666", fontSize: 16 },
 
-  profileCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    elevation: 2,
+  headerGradient: {
+    alignItems: "center",
+    paddingTop: 60,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
-  avatar: { width: 86, height: 86, borderRadius: 44, backgroundColor: '#eee' },
-  userInfo: { flex: 1, marginLeft: 12 },
-  userName: { fontSize: 17, fontWeight: '700', color: '#111' },
-  userHandle: { color: '#f1641e', marginTop: 4 },
-  userEmail: { color: '#777', marginTop: 6, fontSize: 13 },
-
-  actionsRow: { flexDirection: 'row', marginTop: 12, alignItems: 'center' },
-  msgBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f1641e',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+  avatarContainer: {
+    position: "relative",
+    marginBottom: 16,
   },
-  msgBtnText: { color: '#fff', fontWeight: '700', marginLeft: 8, fontSize: 13 },
-  callBtn: {
-    marginLeft: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#f1641e',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
+  avatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 4,
+    borderColor: "#fff",
   },
-
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    marginHorizontal: 16,
+  verifiedBadge: {
+    position: "absolute",
+    bottom: 5,
+    right: 5,
+    backgroundColor: "#fff",
     borderRadius: 12,
-    overflow: 'hidden',
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#eee',
+    padding: 2,
   },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabText: { fontSize: 14, fontWeight: '600', color: '#777' },
-  activeTab: { backgroundColor: '#f1641e15' },
-  activeTabText: { color: '#f1641e', fontWeight: '800' },
+  name: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  username: {
+    color: "#ffe1d3",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  email: {
+    color: "#ffd9c7",
+    fontSize: 13,
+    marginTop: 6,
+  },
+  statsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    marginTop: 20,
+  },
+  statItem: {
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#ffe1d3",
+    fontWeight: "500",
+  },
 
-  listContent: { paddingHorizontal: 10, paddingBottom: 40, paddingTop: 12 },
-  row: { justifyContent: 'space-between' },
-  card: {
-    width: CARD_WIDTH,
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    marginBottom: 12,
-    overflow: 'hidden',
+  infoCard: {
+    backgroundColor: "#fff",
+    margin: 16,
+    marginTop: 24,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 3,
   },
-  imageContainer: { position: 'relative' },
-  image: { width: '100%', height: 140, backgroundColor: '#f0f0f0' },
-
-  heartBtn: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginLeft: 8,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  infoContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 2,
+    fontWeight: "500",
+  },
+  infoValue: {
+    fontSize: 15,
+    color: "#333",
+    fontWeight: "600",
   },
 
-  cardContent: { padding: 10 },
-  title: { fontSize: 14, fontWeight: '700', color: '#111' },
-  price: { color: '#f1641e', fontWeight: '800', marginTop: 6 },
-  detailsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  detailText: { fontSize: 12, color: '#888', marginLeft: 6 },
-
-  aboutCard: {
-    backgroundColor: '#fff',
+  productsContainer: {
     marginHorizontal: 16,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 12,
+    marginTop: 8,
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: "#888",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
+  productCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+    overflow: "hidden",
+  },
+  imageWrapper: {
+    position: "relative",
+  },
+  productImage: {
+    width: "100%",
+    height: 220,
+    backgroundColor: "#f0f0f0",
+  },
+  imageCountBadge: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  imageCountText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+  healthBadgeCard: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    backgroundColor: "#fff",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
     elevation: 2,
   },
-  aboutTitle: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 8 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  infoText: { marginLeft: 10, color: '#444', fontSize: 14 },
+  productDetails: {
+    padding: 14,
+  },
+  productTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 8,
+  },
+  productMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  productMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  productBreed: {
+    fontSize: 13,
+    color: "#666",
+    marginLeft: 4,
+    fontWeight: "500",
+  },
+  productAge: {
+    fontSize: 13,
+    color: "#666",
+    marginLeft: 4,
+    fontWeight: "500",
+  },
+  productFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  productPrice: {
+    color: PRIMARY_COLOR,
+    fontWeight: "700",
+    fontSize: 18,
+  },
+  viewDetailsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff5f0",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  viewDetailsText: {
+    color: PRIMARY_COLOR,
+    fontSize: 13,
+    fontWeight: "600",
+    marginRight: 4,
+  },
 
-  emptyContainer: { alignItems: 'center', paddingVertical: 50 },
-  emptyText: { fontSize: 15, color: '#999', marginTop: 10 },
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: PRIMARY_COLOR,
+    marginHorizontal: 16,
+    marginTop: 24,
+    paddingVertical: 14,
+    borderRadius: 30,
+    elevation: 2,
+  },
+  logoutText: {
+    color: PRIMARY_COLOR,
+    fontWeight: "700",
+    marginLeft: 8,
+    fontSize: 16,
+  },
 });
+
+export default ProfileScreen;
