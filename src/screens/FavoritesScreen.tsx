@@ -1,16 +1,34 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, ScrollView } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
 
 export default function FavoritesScreen() {
   const [jsonData, setJsonData] = useState(null);
 
   const fetchFavorites = async () => {
     try {
-      const response = await fetch("https://mandimore.com/v1/favorites");
-      const json = await response.json();
-      setJsonData(json);
+      const token = await AsyncStorage.getItem("authToken");
+      console.log("Token:", token);
+
+      if (!token) {
+        setJsonData({ error: "No token found!" });
+        return;
+      }
+
+      const response = await axios.get("https://mandimore.com/v1/favorites", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
+
+      setJsonData(response.data); // ✅ Correct
     } catch (error) {
-      setJsonData({ error: "Failed to load JSON" });
+      setJsonData({
+        error: "Failed to load JSON",
+        details: error.message,
+      });
     }
   };
 
