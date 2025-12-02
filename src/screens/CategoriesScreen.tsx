@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get('window');
 
@@ -82,11 +83,17 @@ const CategoriesScreen = () => {
   }, []);
 
   const fetchCategories = async () => {
+    const token = await AsyncStorage.getItem('authToken');
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('https://mandimore.com/v1/fetch_all_categories');
+      const response = await fetch('https://mandimore.com/v1/fetch_all_categories', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        }
+      });
       const json: ApiResponse = await response.json();
       
       if (json.code === 200 && json.data) {

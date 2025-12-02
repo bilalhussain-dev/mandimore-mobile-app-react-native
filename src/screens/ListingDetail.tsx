@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,16 @@ import {
   Dimensions,
   ScrollView,
   TouchableOpacity,
-  FlatList,
   Linking,
   Share,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import Swiper from 'react-native-swiper';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 
 const { width } = Dimensions.get('window');
 
@@ -21,6 +24,90 @@ const ListingDetail = () => {
   const route = useRoute();
   const navigation = useNavigation();
   const { LISTING_DETAIL } = route.params || {};
+
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [loadingFavorite, setLoadingFavorite] = useState(false);
+
+  useEffect(() => {
+    if (LISTING_DETAIL?.id) {
+      checkIfFavorite();
+    }
+  }, [LISTING_DETAIL?.id]);
+
+  const checkIfFavorite = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      const response = await axios.get('https://mandimore.com/v1/favorites', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (response.data && response.data.data) {
+        const favoriteIds = response.data.data.map(
+          fav => fav.listing?.id || fav.listing_id || fav.id
+        );
+        setIsFavorite(favoriteIds.includes(LISTING_DETAIL.id));
+      }
+    } catch (error) {
+      console.error('Error checking favorite status:', error);
+    }
+  };
+
+  const toggleFavorite = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        Alert.alert(
+          'Login Required',
+          'Please login to add items to favorites'
+        );
+        return;
+      }
+
+      setLoadingFavorite(true);
+
+      // Optimistic UI update
+      setIsFavorite(!isFavorite);
+
+      if (isFavorite) {
+        // Remove from favorites
+        await axios.delete(
+          `https://mandimore.com/v1/favorites/${LISTING_DETAIL.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          }
+        );
+      } else {
+        // Add to favorites
+        await axios.post(
+          `https://mandimore.com/v1/favorites/${LISTING_DETAIL.id}`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          }
+        );
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      
+      // Revert optimistic update on error
+      setIsFavorite(!isFavorite);
+      Alert.alert('Error', 'Failed to update favorites. Please try again.');
+    } finally {
+      setLoadingFavorite(false);
+    }
+  };
 
   if (!LISTING_DETAIL) return null;
 
@@ -39,7 +126,6 @@ const ListingDetail = () => {
     user,
   } = LISTING_DETAIL;
 
-  // For image slider
   const images = image_urls && image_urls.length > 0 ? image_urls : [];
 
   const petDetails = [
@@ -105,8 +191,24 @@ const ListingDetail = () => {
           <TouchableOpacity style={styles.headerBtn} onPress={handleShare}>
             <Ionicons name="share-social-outline" size={20} color="#333" />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.headerBtn, { marginLeft: 8 }]}>
-            <Ionicons name="heart-outline" size={20} color="#333" />
+          <TouchableOpacity 
+            style={[
+              styles.headerBtn, 
+              { marginLeft: 8 },
+              isFavorite && styles.headerBtnActive
+            ]}
+            onPress={toggleFavorite}
+            disabled={loadingFavorite}
+          >
+            {loadingFavorite ? (
+              <ActivityIndicator size="small" color={isFavorite ? "#fff" : "#f1641e"} />
+            ) : (
+              <Ionicons 
+                name={isFavorite ? "heart" : "heart-outline"} 
+                size={20} 
+                color={isFavorite ? "#fff" : "#333"} 
+              />
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -283,6 +385,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+  },
+  headerBtnActive: {
+    backgroundColor: '#ff6b6b',
   },
   imageContainer: {
     position: 'relative',
@@ -486,15 +591,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#777',
     marginBottom: 4,
-  },
-  sellerContactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  sellerContact: {
-    fontSize: 13,
-    color: '#555',
-    marginLeft: 4,
   },
   messageIconBtn: {
     width: 40,

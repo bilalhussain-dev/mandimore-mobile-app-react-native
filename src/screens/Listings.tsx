@@ -6,19 +6,19 @@ import {
   Image,
   TouchableOpacity,
   StyleSheet,
-  TextInput,
   StatusBar,
   ActivityIndicator,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { Ionicons } from "@react-native-vector-icons/ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
 
-// GET ALL LISTINGS - API
 const API_URL = 'https://mandimore.com/v1/fetch_all_listings';
 
 const ListingsScreen = () => {
@@ -27,11 +27,14 @@ const ListingsScreen = () => {
   const [filteredListings, setFilteredListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [favoriteIds, setFavoriteIds] = useState(new Set());
+  const [loadingFavorites, setLoadingFavorites] = useState({});
 
   const categories = ['All', 'Dogs', 'Cats', 'Birds', 'Livestock', 'Others'];
 
   useEffect(() => {
     fetchListings();
+    fetchUserFavorites();
   }, []);
 
   useEffect(() => {
@@ -40,7 +43,14 @@ const ListingsScreen = () => {
 
   const fetchListings = async () => {
     try {
-      const response = await axios.get(API_URL);
+      const token = await AsyncStorage.getItem("authToken");
+      
+      const response = await axios.get(API_URL, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
       if (response.data && response.data.data) {
         setListings(response.data.data);
         setFilteredListings(response.data.data);
@@ -49,6 +59,102 @@ const ListingsScreen = () => {
       console.error('Error fetching listings:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUserFavorites = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      const response = await axios.get('https://mandimore.com/v1/favorites', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (response.data && response.data.data) {
+        const ids = new Set(
+          response.data.data.map(fav => fav.listing?.id || fav.listing_id || fav.id)
+        );
+        setFavoriteIds(ids);
+      }
+    } catch (error) {
+      console.error('Error fetching favorites:', error);
+    }
+  };
+
+  const toggleFavorite = async (listingId) => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (!token) {
+        Alert.alert(
+          'Login Required',
+          'Please login to add items to favorites'
+        );
+        return;
+      }
+
+      const isFavorite = favoriteIds.has(listingId);
+      
+      // Show loading for this item
+      setLoadingFavorites(prev => ({ ...prev, [listingId]: true }));
+
+      // Optimistic UI update
+      setFavoriteIds(prev => {
+        const newSet = new Set(prev);
+        if (isFavorite) {
+          newSet.delete(listingId);
+        } else {
+          newSet.add(listingId);
+        }
+        return newSet;
+      });
+
+      // Make API call
+      if (isFavorite) {
+        // Remove from favorites (DELETE)
+        await axios.delete(
+          `https://mandimore.com/v1/favorites/${listingId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          }
+        );
+      } else {
+        // Add to favorites (POST)
+        await axios.post(
+          `https://mandimore.com/v1/favorites/${listingId}`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          }
+        );
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      
+      // Revert optimistic update on error
+      setFavoriteIds(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(listingId)) {
+          newSet.delete(listingId);
+        } else {
+          newSet.add(listingId);
+        }
+        return newSet;
+      });
+
+      Alert.alert('Error', 'Failed to update favorites. Please try again.');
+    } finally {
+      setLoadingFavorites(prev => ({ ...prev, [listingId]: false }));
     }
   };
 
@@ -85,69 +191,89 @@ const ListingsScreen = () => {
     </TouchableOpacity>
   );
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.card}
-      activeOpacity={0.9}
-      onPress={() => navigation.navigate('ListingDetail', { LISTING_DETAIL: item })}
-    >
-      <View style={styles.imageContainer}>
-        <Image
-          source={{ uri: item.image_urls?.[0] || 'https://via.placeholder.com/200' }}
-          style={styles.image}
-        />
-        <View style={styles.imageBadge}>
-          <Ionicons name="images-outline" size={12} color="#fff" />
-          <Text style={styles.imageBadgeText}>{item.image_urls?.length || 0}</Text>
-        </View>
-        <TouchableOpacity style={styles.heartBtn}>
-          <Ionicons name="heart-outline" size={18} color="#fff" />
-        </TouchableOpacity>
-      </View>
+  const renderItem = ({ item }) => {
+    const isFavorite = favoriteIds.has(item.id);
+    const isLoadingFav = loadingFavorites[item.id];
 
-      <View style={styles.cardContent}>
-        <Text style={styles.title} numberOfLines={2}>
-          {item.title}
-        </Text>
-        
-        <View style={styles.breedContainer}>
-          <View style={styles.breedBadge}>
-            <Text style={styles.breedText} numberOfLines={1}>
-              {item.breed}
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.9}
+        onPress={() => navigation.navigate('ListingDetail', { LISTING_DETAIL: item })}
+      >
+        <View style={styles.imageContainer}>
+          <Image
+            source={{ uri: item.image_urls?.[0] || 'https://via.placeholder.com/200' }}
+            style={styles.image}
+          />
+          <View style={styles.imageBadge}>
+            <Ionicons name="images-outline" size={12} color="#fff" />
+            <Text style={styles.imageBadgeText}>{item.image_urls?.length || 0}</Text>
+          </View>
+          <TouchableOpacity 
+            style={[
+              styles.heartBtn,
+              isFavorite && styles.heartBtnActive
+            ]}
+            onPress={() => toggleFavorite(item.id)}
+            disabled={isLoadingFav}
+          >
+            {isLoadingFav ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons 
+                name={isFavorite ? "heart" : "heart-outline"} 
+                size={18} 
+                color="#fff" 
+              />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.cardContent}>
+          <Text style={styles.title} numberOfLines={2}>
+            {item.title}
+          </Text>
+          
+          <View style={styles.breedContainer}>
+            <View style={styles.breedBadge}>
+              <Text style={styles.breedText} numberOfLines={1}>
+                {item.breed}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.detailsRow}>
+            <View style={styles.detailItem}>
+              <Ionicons name="time-outline" size={12} color="#999" />
+              <Text style={styles.detailText}>{item.age}</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="scale-outline" size={12} color="#999" />
+              <Text style={styles.detailText}>{item.weight || 'N/A'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={12} color="#666" />
+            <Text style={styles.location} numberOfLines={1}>
+              {item.address || 'No location'}
             </Text>
           </View>
-        </View>
 
-        <View style={styles.detailsRow}>
-          <View style={styles.detailItem}>
-            <Ionicons name="time-outline" size={12} color="#999" />
-            <Text style={styles.detailText}>{item.age}</Text>
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>{formatPrice(item.price)}</Text>
+            {item.health_status === 'excellent' && (
+              <View style={styles.healthBadge}>
+                <Ionicons name="shield-checkmark" size={10} color="#4CAF50" />
+                <Text style={styles.healthText}>Healthy</Text>
+              </View>
+            )}
           </View>
-          <View style={styles.detailItem}>
-            <Ionicons name="scale-outline" size={12} color="#999" />
-            <Text style={styles.detailText}>{item.weight || 'N/A'}</Text>
-          </View>
         </View>
-
-        <View style={styles.locationRow}>
-          <Ionicons name="location-outline" size={12} color="#666" />
-          <Text style={styles.location} numberOfLines={1}>
-            {item.address || 'No location'}
-          </Text>
-        </View>
-
-        <View style={styles.priceRow}>
-          <Text style={styles.price}>{formatPrice(item.price)}</Text>
-          {item.health_status === 'excellent' && (
-            <View style={styles.healthBadge}>
-              <Ionicons name="shield-checkmark" size={10} color="#4CAF50" />
-              <Text style={styles.healthText}>Healthy</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   const renderHeader = () => (
     <View>
@@ -278,29 +404,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fff',
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    height: 48,
-    fontSize: 15,
-    color: '#333',
-  },
   categoriesContainer: {
     paddingHorizontal: 20,
     paddingTop: 16,
@@ -410,6 +513,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  heartBtnActive: {
+    backgroundColor: '#ff6b6b',
   },
   cardContent: {
     padding: 12,
