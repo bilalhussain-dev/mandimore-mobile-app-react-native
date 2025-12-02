@@ -14,7 +14,7 @@ import {
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
@@ -31,6 +31,14 @@ const FavoritesScreen = () => {
   useEffect(() => {
     fetchFavorites();
   }, []);
+
+   // 🔥 Auto-refresh when returning from detail screen
+   useFocusEffect(
+    React.useCallback(() => {
+      fetchFavorites();
+    }, [])
+  );
+
 
   const fetchFavorites = async () => {
     try {

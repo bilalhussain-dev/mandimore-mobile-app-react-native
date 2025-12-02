@@ -14,7 +14,7 @@ import {
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from 'axios';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
@@ -37,6 +37,13 @@ const ListingsScreen = () => {
     fetchUserFavorites();
   }, []);
 
+  // 🔥 Auto-refresh when returning from detail screen
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchUserFavorites();
+    }, [])
+  );
+
   useEffect(() => {
     filterListings();
   }, [selectedCategory, listings]);
@@ -44,7 +51,7 @@ const ListingsScreen = () => {
   const fetchListings = async () => {
     try {
       const token = await AsyncStorage.getItem("authToken");
-      
+
       const response = await axios.get(API_URL, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -88,7 +95,7 @@ const ListingsScreen = () => {
   const toggleFavorite = async (listingId) => {
     try {
       const token = await AsyncStorage.getItem('authToken');
-      
+
       if (!token) {
         Alert.alert(
           'Login Required',
@@ -98,7 +105,7 @@ const ListingsScreen = () => {
       }
 
       const isFavorite = favoriteIds.has(listingId);
-      
+
       // Show loading for this item
       setLoadingFavorites(prev => ({ ...prev, [listingId]: true }));
 
@@ -140,7 +147,7 @@ const ListingsScreen = () => {
       }
     } catch (error) {
       console.error('Error toggling favorite:', error);
-      
+
       // Revert optimistic update on error
       setFavoriteIds(prev => {
         const newSet = new Set(prev);
@@ -210,7 +217,7 @@ const ListingsScreen = () => {
             <Ionicons name="images-outline" size={12} color="#fff" />
             <Text style={styles.imageBadgeText}>{item.image_urls?.length || 0}</Text>
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.heartBtn,
               isFavorite && styles.heartBtnActive
@@ -221,10 +228,10 @@ const ListingsScreen = () => {
             {isLoadingFav ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Ionicons 
-                name={isFavorite ? "heart" : "heart-outline"} 
-                size={18} 
-                color="#fff" 
+              <Ionicons
+                name={isFavorite ? "heart" : "heart-outline"}
+                size={18}
+                color="#fff"
               />
             )}
           </TouchableOpacity>
@@ -234,7 +241,7 @@ const ListingsScreen = () => {
           <Text style={styles.title} numberOfLines={2}>
             {item.title}
           </Text>
-          
+
           <View style={styles.breedContainer}>
             <View style={styles.breedBadge}>
               <Text style={styles.breedText} numberOfLines={1}>
@@ -324,7 +331,7 @@ const ListingsScreen = () => {
   return (
     <View style={styles.container}>
       <StatusBar backgroundColor="#fff" barStyle="dark-content" />
-      
+
       <FlatList
         data={filteredListings}
         renderItem={renderItem}
