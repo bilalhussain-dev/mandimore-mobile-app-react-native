@@ -41,7 +41,7 @@ const LoginScreen = () => {
       const data = await response.json();
       if (response.ok && data.code === 200) {
         await AsyncStorage.setItem("authToken", data.token);
-        await AsyncStorage.setItem("userData", JSON.stringify(data.data));
+        await AsyncStorage.setItem("current_user", JSON.stringify(data.data));
         Alert.alert("Success", data.message);
         navigation.navigate("Tabs");
       } else {

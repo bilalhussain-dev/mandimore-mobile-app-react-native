@@ -33,16 +33,16 @@ const Tab = createBottomTabNavigator();
 
 // --- Bottom Tabs Layout ---
 function BottomTabs() {
-  const [userId, setUserId] = useState<number | null>(null);
+  const [userId, current_user_id] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const userData = await AsyncStorage.getItem("userData");
-        if (userData) {
-          const parsed = JSON.parse(userData);
-          setUserId(parsed.id);
+        const current_user = await AsyncStorage.getItem("current_user");
+        if (current_user) {
+          const parsed = JSON.parse(current_user);
+          current_user_id(parsed.id);
         }
       } catch (error) {
         console.error('Error loading user data:', error);

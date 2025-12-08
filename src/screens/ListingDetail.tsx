@@ -17,6 +17,7 @@ import Swiper from 'react-native-swiper';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import CreateOrEditProductModal, { ProductFormData } from '../components/createOrEditProductModal';
 
 const { width } = Dimensions.get('window');
 
@@ -27,12 +28,27 @@ const ListingDetail = () => {
 
   const [isFavorite, setIsFavorite] = useState(false);
   const [loadingFavorite, setLoadingFavorite] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   useEffect(() => {
     if (LISTING_DETAIL?.id) {
       checkIfFavorite();
     }
+    getCurrentUser();
   }, [LISTING_DETAIL?.id]);
+
+  const getCurrentUser = async () => {
+    try {
+      const userDataString = await AsyncStorage.getItem('current_user');
+      if (userDataString) {
+        const userData = JSON.parse(userDataString);
+        setCurrentUserId(userData.id);
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error);
+    }
+  };
 
   const checkIfFavorite = async () => {
     try {
@@ -109,6 +125,21 @@ const ListingDetail = () => {
     }
   };
 
+  const handleEditSubmit = () => {
+    // Refresh the listing details or navigate back
+    setEditModalVisible(false);
+    // You might want to refresh the data here or navigate back
+    Alert.alert('Success', 'Listing updated successfully!', [
+      {
+        text: 'OK',
+        onPress: () => {
+          // Optionally refresh data or navigate
+          navigation.goBack();
+        }
+      }
+    ]);
+  };
+
   if (!LISTING_DETAIL) return null;
 
   const {
@@ -124,6 +155,12 @@ const ListingDetail = () => {
     address,
     image_urls,
     user,
+    country,
+    province,
+    latitude,
+    longitude,
+    category_id,
+    custom_button,
   } = LISTING_DETAIL;
 
   const images = image_urls && image_urls.length > 0 ? image_urls : [];
@@ -177,6 +214,26 @@ const ListingDetail = () => {
     return html?.replace(/<[^>]*>?/gm, '').trim() || 'No description available';
   };
 
+  // Prepare initial data for edit mode
+  const initialEditData: ProductFormData = {
+    title: title || '',
+    breed: breed || '',
+    description: stripHtml(description),
+    age: age || '',
+    color: color || '',
+    weight: weight || '',
+    height: height || '',
+    price: price?.toString() || '',
+    health_status: health_status || '',
+    country: country || 'Pakistan',
+    province: province || '',
+    address: address || '',
+    latitude: latitude?.toString() || '',
+    longitude: longitude?.toString() || '',
+    category_id: category_id?.toString() || '',
+    custom_button: custom_button || '',
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -188,9 +245,19 @@ const ListingDetail = () => {
           <Ionicons name="arrow-back" size={22} color="#333" />
         </TouchableOpacity>
         <View style={styles.headerRight}>
+          {currentUserId && currentUserId === user?.id && (
+            <TouchableOpacity 
+              style={[styles.headerBtn, { marginRight: 8 }]}
+              onPress={() => setEditModalVisible(true)}
+            >
+              <Ionicons name="create-outline" size={20} color="#333" />
+            </TouchableOpacity>
+          )}
+          
           <TouchableOpacity style={styles.headerBtn} onPress={handleShare}>
             <Ionicons name="share-social-outline" size={20} color="#333" />
           </TouchableOpacity>
+          
           <TouchableOpacity 
             style={[
               styles.headerBtn, 
@@ -345,6 +412,16 @@ const ListingDetail = () => {
           <Text style={styles.whatsappText}>WhatsApp</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Edit Product Modal */}
+      <CreateOrEditProductModal
+        visible={editModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        onSubmit={handleEditSubmit}
+        editMode={true}
+        initialData={initialEditData}
+        listingId={LISTING_DETAIL.id}
+      />
     </View>
   );
 };
