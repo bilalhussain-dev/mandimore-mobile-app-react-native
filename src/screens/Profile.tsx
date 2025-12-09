@@ -21,14 +21,34 @@ import LinearGradient from "react-native-linear-gradient";
 
 const PRIMARY_COLOR = "#f1641e";
 const { width } = Dimensions.get("window");
+const CARD_WIDTH = (width - 48) / 2;
 
 const ProfileScreen = () => {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const userId = route.params?.PROFILE?.id;
+
+  useEffect(() => {
+    if (userId) fetchProfile();
+    getCurrentUser();
+  }, [userId]);
+
+  const getCurrentUser = async () => {
+    try {
+      const userDataString = await AsyncStorage.getItem('current_user');
+      if (userDataString) {
+        const userData = JSON.parse(userDataString);
+        setCurrentUserId(userData.id);
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -52,9 +72,46 @@ const ProfileScreen = () => {
     }
   };
 
-  useEffect(() => {
-    if (userId) fetchProfile();
-  }, [userId]);
+  const handleDeleteListing = async (listingId: number) => {
+    Alert.alert(
+      "Delete Listing",
+      "Are you sure you want to delete this listing? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeletingId(listingId);
+              const token = await AsyncStorage.getItem("authToken");
+              
+              await axios.delete(
+                `https://mandimore.com/v1/products/${listingId}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    Accept: "application/json",
+                  },
+                }
+              );
+
+              Alert.alert("Success", "Listing deleted successfully!");
+              fetchProfile(); // Refresh the profile
+            } catch (error: any) {
+              console.error("Error deleting listing:", error);
+              Alert.alert(
+                "Error",
+                error.response?.data?.message || "Failed to delete listing. Please try again."
+              );
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleLogout = async () => {
     Alert.alert(
@@ -81,7 +138,7 @@ const ProfileScreen = () => {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={PRIMARY_COLOR} />
-        <Text style={styles.loadingText}>Loading your profile...</Text>
+        <Text style={styles.loadingText}>Loading profile...</Text>
       </View>
     );
   }
@@ -96,6 +153,7 @@ const ProfileScreen = () => {
   }
 
   const products = profile.products || [];
+  const isOwnProfile = currentUserId === userId;
 
   return (
     <View style={styles.container}>
@@ -129,7 +187,7 @@ const ProfileScreen = () => {
             />
             {profile.verified && (
               <View style={styles.verifiedBadge}>
-                <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+                <Ionicons name="checkmark-circle" size={24} color={PRIMARY_COLOR} />
               </View>
             )}
           </View>
@@ -137,7 +195,6 @@ const ProfileScreen = () => {
             {profile.first_name} {profile.last_name}
           </Text>
           <Text style={styles.username}>@{profile.username}</Text>
-          <Text style={styles.email}>{profile.email}</Text>
 
           {/* Stats Row */}
           <View style={styles.statsContainer}>
@@ -147,10 +204,14 @@ const ProfileScreen = () => {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statNumber}>
+              <Ionicons 
+                name={profile.verified ? "shield-checkmark" : "shield-outline"} 
+                size={20} 
+                color="#fff" 
+              />
+              <Text style={styles.statLabel}>
                 {profile.verified ? "Verified" : "Unverified"}
               </Text>
-              <Text style={styles.statLabel}>Status</Text>
             </View>
           </View>
         </LinearGradient>
@@ -165,8 +226,8 @@ const ProfileScreen = () => {
             icon="call"
             label="Mobile"
             value={profile.mobile_number}
-            iconBg="#e3f2fd"
-            iconColor="#2196F3"
+            iconBg="#fff5f0"
+            iconColor={PRIMARY_COLOR}
           />
           <InfoRow
             icon="logo-whatsapp"
@@ -179,8 +240,8 @@ const ProfileScreen = () => {
             icon="mail"
             label="Email"
             value={profile.email}
-            iconBg="#fff3e0"
-            iconColor="#FF9800"
+            iconBg="#fff5f0"
+            iconColor={PRIMARY_COLOR}
           />
         </View>
 
@@ -188,7 +249,9 @@ const ProfileScreen = () => {
         <View style={styles.productsContainer}>
           <View style={styles.sectionHeader}>
             <Ionicons name="grid" size={22} color={PRIMARY_COLOR} />
-            <Text style={styles.sectionTitle}>My Listings</Text>
+            <Text style={styles.sectionTitle}>
+              {isOwnProfile ? "My Listings" : "Listings"}
+            </Text>
           </View>
 
           {products.length === 0 ? (
@@ -196,32 +259,35 @@ const ProfileScreen = () => {
               <Ionicons name="paw-outline" size={64} color="#ddd" />
               <Text style={styles.emptyStateTitle}>No Listings Yet</Text>
               <Text style={styles.emptyStateText}>
-                You haven't posted any listings yet. Start selling your pets today!
+                {isOwnProfile 
+                  ? "You haven't posted any listings yet. Start selling today!"
+                  : "This user hasn't posted any listings yet."}
               </Text>
             </View>
           ) : (
-            <FlatList
-              data={products}
-              keyExtractor={(item) => item.id.toString()}
-              renderItem={({ item }) => (
+            <View style={styles.productsGrid}>
+              {products.map((product) => (
                 <ProductCard
-                  product={item}
+                  key={product.id}
+                  product={product}
                   navigation={navigation}
                   userProfile={profile}
+                  isOwnProfile={isOwnProfile}
+                  onDelete={handleDeleteListing}
+                  isDeleting={deletingId === product.id}
                 />
-              )}
-              horizontal={false}
-              scrollEnabled={false}
-              showsVerticalScrollIndicator={false}
-            />
+              ))}
+            </View>
           )}
         </View>
 
-        {/* Logout */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={22} color="#fff" />
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        {/* Logout Button - Only show for own profile */}
+        {isOwnProfile && (
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={22} color={PRIMARY_COLOR} />
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -243,7 +309,14 @@ const InfoRow = ({ icon, label, value, iconBg, iconColor }: any) => (
 );
 
 // Product Card Component
-const ProductCard = ({ product, navigation, userProfile }: any) => {
+const ProductCard = ({ 
+  product, 
+  navigation, 
+  userProfile, 
+  isOwnProfile,
+  onDelete,
+  isDeleting 
+}: any) => {
   const images = product.image_urls || [];
   const mainImage = images.length > 0 ? images[0] : "https://via.placeholder.com/400x300?text=No+Image";
 
@@ -263,26 +336,50 @@ const ProductCard = ({ product, navigation, userProfile }: any) => {
     },
   };
 
+  const formatPrice = (price: any) => {
+    return `Rs ${parseFloat(price).toLocaleString('en-PK')}`;
+  };
+
   return (
     <TouchableOpacity
       style={styles.productCard}
       onPress={() =>
         navigation.navigate("ListingDetail", { LISTING_DETAIL: enrichedProduct })
       }
-      activeOpacity={0.7}
+      activeOpacity={0.9}
+      disabled={isDeleting}
     >
       <View style={styles.imageWrapper}>
         <Image source={{ uri: mainImage }} style={styles.productImage} />
+        
+        {/* Image Count Badge */}
         {images.length > 1 && (
-          <View style={styles.imageCountBadge}>
-            <Ionicons name="images" size={12} color="#fff" />
-            <Text style={styles.imageCountText}>{images.length}</Text>
+          <View style={styles.imageBadge}>
+            <Ionicons name="images-outline" size={12} color="#fff" />
+            <Text style={styles.imageBadgeText}>{images.length}</Text>
           </View>
         )}
+
+        {/* Health Badge */}
         {product.health_status === "excellent" && (
           <View style={styles.healthBadgeCard}>
-            <Ionicons name="shield-checkmark" size={12} color="#4CAF50" />
+            <Ionicons name="shield-checkmark" size={12} color={PRIMARY_COLOR} />
           </View>
+        )}
+
+        {/* Delete Button - Only show for own profile */}
+        {isOwnProfile && (
+          <TouchableOpacity
+            style={styles.deleteBtn}
+            onPress={() => onDelete(product.id)}
+            disabled={isDeleting}
+          >
+            {isDeleting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="trash-outline" size={16} color="#fff" />
+            )}
+          </TouchableOpacity>
         )}
       </View>
 
@@ -291,27 +388,47 @@ const ProductCard = ({ product, navigation, userProfile }: any) => {
           {product.title}
         </Text>
         
-        <View style={styles.productMeta}>
-          <View style={styles.productMetaItem}>
-            <Ionicons name="paw" size={14} color="#666" />
-            <Text style={styles.productBreed} numberOfLines={1}>
+        {/* Breed Badge */}
+        <View style={styles.breedContainer}>
+          <View style={styles.breedBadge}>
+            <Text style={styles.breedText} numberOfLines={1}>
               {product.breed || "Mixed Breed"}
             </Text>
           </View>
+        </View>
+
+        {/* Details Row */}
+        <View style={styles.detailsRow}>
           {product.age && (
-            <View style={styles.productMetaItem}>
-              <Ionicons name="time" size={14} color="#666" />
-              <Text style={styles.productAge}>{product.age}</Text>
+            <View style={styles.detailItem}>
+              <Ionicons name="time-outline" size={12} color="#999" />
+              <Text style={styles.detailText}>{product.age}</Text>
+            </View>
+          )}
+          {product.weight && (
+            <View style={styles.detailItem}>
+              <Ionicons name="scale-outline" size={12} color="#999" />
+              <Text style={styles.detailText}>{product.weight}</Text>
             </View>
           )}
         </View>
 
-        <View style={styles.productFooter}>
+        {/* Location */}
+        {product.address && (
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={12} color="#666" />
+            <Text style={styles.location} numberOfLines={1}>
+              {product.address}
+            </Text>
+          </View>
+        )}
+
+        {/* Price Row */}
+        <View style={styles.priceRow}>
           <Text style={styles.productPrice}>
-            Rs. {parseFloat(product.price).toLocaleString()}
+            {formatPrice(product.price)}
           </Text>
           <View style={styles.viewDetailsBtn}>
-            <Text style={styles.viewDetailsText}>View</Text>
             <Ionicons name="arrow-forward" size={14} color={PRIMARY_COLOR} />
           </View>
         </View>
@@ -321,15 +438,15 @@ const ProductCard = ({ product, navigation, userProfile }: any) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  container: { flex: 1, backgroundColor: "#f8f9fa" },
   scrollView: { flex: 1 },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#f8f9fa",
   },
-  loadingText: { marginTop: 12, color: "#666", fontSize: 15 },
+  loadingText: { marginTop: 12, color: "#666", fontSize: 15, fontWeight: "500" },
   noDataText: { marginTop: 16, color: "#666", fontSize: 16 },
 
   headerGradient: {
@@ -374,11 +491,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "500",
   },
-  email: {
-    color: "#ffd9c7",
-    fontSize: 13,
-    marginTop: 6,
-  },
   statsContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -407,6 +519,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#ffe1d3",
     fontWeight: "500",
+    marginTop: 4,
   },
 
   infoCard: {
@@ -471,6 +584,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 60,
     paddingHorizontal: 40,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    marginTop: 8,
   },
   emptyStateTitle: {
     fontSize: 18,
@@ -486,37 +602,45 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
+  productsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+
   productCard: {
+    width: CARD_WIDTH,
     backgroundColor: "#fff",
     borderRadius: 16,
     marginBottom: 16,
+    overflow: "hidden",
+    elevation: 3,
     shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-    overflow: "hidden",
   },
   imageWrapper: {
     position: "relative",
   },
   productImage: {
     width: "100%",
-    height: 220,
+    height: 160,
     backgroundColor: "#f0f0f0",
   },
-  imageCountBadge: {
+  imageBadge: {
     position: "absolute",
-    top: 12,
-    right: 12,
+    top: 8,
+    left: 8,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  imageCountText: {
+  imageBadgeText: {
     color: "#fff",
     fontSize: 11,
     fontWeight: "600",
@@ -524,70 +648,99 @@ const styles = StyleSheet.create({
   },
   healthBadgeCard: {
     position: "absolute",
-    top: 12,
-    left: 12,
+    bottom: 8,
+    left: 8,
     backgroundColor: "#fff",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 2,
+  },
+  deleteBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
     width: 32,
     height: 32,
     borderRadius: 16,
+    backgroundColor: "rgba(244, 67, 54, 0.9)",
     justifyContent: "center",
     alignItems: "center",
     elevation: 2,
   },
   productDetails: {
-    padding: 14,
+    padding: 12,
   },
   productTitle: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#1a1a1a",
+    color: "#333",
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  breedContainer: {
     marginBottom: 8,
   },
-  productMeta: {
+  breedBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#fff5f0",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#ffe0d1",
+  },
+  breedText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: PRIMARY_COLOR,
+  },
+  detailsRow: {
+    flexDirection: "row",
+    marginBottom: 6,
+  },
+  detailItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    marginRight: 12,
   },
-  productMetaItem: {
+  detailText: {
+    fontSize: 11,
+    color: "#999",
+    marginLeft: 3,
+    fontWeight: "500",
+  },
+  locationRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: 16,
+    marginBottom: 8,
   },
-  productBreed: {
-    fontSize: 13,
+  location: {
+    fontSize: 11,
     color: "#666",
-    marginLeft: 4,
-    fontWeight: "500",
+    marginLeft: 3,
+    flex: 1,
   },
-  productAge: {
-    fontSize: 13,
-    color: "#666",
-    marginLeft: 4,
-    fontWeight: "500",
-  },
-  productFooter: {
+  priceRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginTop: 4,
   },
   productPrice: {
     color: PRIMARY_COLOR,
     fontWeight: "700",
-    fontSize: 18,
+    fontSize: 16,
   },
   viewDetailsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "#fff5f0",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-  },
-  viewDetailsText: {
-    color: PRIMARY_COLOR,
-    fontSize: 13,
-    fontWeight: "600",
-    marginRight: 4,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   logoutButton: {

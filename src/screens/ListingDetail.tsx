@@ -18,7 +18,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import CreateOrEditProductModal, { ProductFormData } from '../components/createOrEditProductModal';
-
+import ReportProductModal from '../components/ReportProductModal';
 const { width } = Dimensions.get('window');
 
 const ListingDetail = () => {
@@ -29,6 +29,7 @@ const ListingDetail = () => {
   const [isFavorite, setIsFavorite] = useState(false);
   const [loadingFavorite, setLoadingFavorite] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
 
   useEffect(() => {
@@ -126,14 +127,11 @@ const ListingDetail = () => {
   };
 
   const handleEditSubmit = () => {
-    // Refresh the listing details or navigate back
     setEditModalVisible(false);
-    // You might want to refresh the data here or navigate back
     Alert.alert('Success', 'Listing updated successfully!', [
       {
         text: 'OK',
         onPress: () => {
-          // Optionally refresh data or navigate
           navigation.goBack();
         }
       }
@@ -250,7 +248,7 @@ const ListingDetail = () => {
               style={[styles.headerBtn, { marginRight: 8 }]}
               onPress={() => setEditModalVisible(true)}
             >
-              <Ionicons name="create-outline" size={20} color="#333" />
+              <Ionicons name="create-outline" size={20} color="#f1641e" />
             </TouchableOpacity>
           )}
           
@@ -398,6 +396,15 @@ const ListingDetail = () => {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Report Button */}
+          <TouchableOpacity 
+            style={styles.reportButton}
+            onPress={() => setReportModalVisible(true)}
+          >
+            <Ionicons name="flag-outline" size={18} color="#666" />
+            <Text style={styles.reportButtonText}>Report this product</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -421,6 +428,13 @@ const ListingDetail = () => {
         editMode={true}
         initialData={initialEditData}
         listingId={LISTING_DETAIL.id}
+      />
+
+      {/* Report Product Modal */}
+      <ReportProductModal
+        visible={reportModalVisible}
+        onClose={() => setReportModalVisible(false)}
+        productId={LISTING_DETAIL.id}
       />
     </View>
   );
@@ -629,7 +643,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   sellerSection: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   sellerCard: {
     flexDirection: 'row',
@@ -677,6 +691,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 2,
+  },
+  reportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#f9f9f9',
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+    marginBottom: 16,
+  },
+  reportButtonText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+    marginLeft: 8,
   },
   bottomBar: {
     position: 'absolute',
