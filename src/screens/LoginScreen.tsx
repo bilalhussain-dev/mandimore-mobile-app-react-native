@@ -16,6 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import { RootStackParamList } from "../../App";
+import SignupScreen from "./SignupScreen";
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, "Login">;
 
@@ -42,6 +43,10 @@ const LoginScreen = () => {
       if (response.ok && data.code === 200) {
         await AsyncStorage.setItem("authToken", data.token);
         await AsyncStorage.setItem("current_user", JSON.stringify(data.data));
+        
+        const getData = await AsyncStorage.getItem("current_user");
+        console.log("Logged in user data:", getData);
+        
         Alert.alert("Success", data.message);
         navigation.navigate("Tabs");
       } else {
@@ -168,7 +173,12 @@ const LoginScreen = () => {
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             Don't have an account?{" "}
-            <Text style={styles.footerLink}>Sign Up</Text>
+            <Text 
+              style={styles.footerLink}
+              onPress={() => navigation.navigate("Signup")}
+            >
+              Sign Up
+            </Text>
           </Text>
         </View>
       </ScrollView>

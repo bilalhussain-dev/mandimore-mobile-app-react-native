@@ -18,9 +18,11 @@ import LoginScreen from './src/screens/LoginScreen';
 import Category from './src/screens/Category';
 import FavoritesScreen from './src/screens/FavoritesScreen';
 import CreateListing from './src/screens/CreateListing';
+import SignupScreen from './src/screens/SignupScreen';
 
 // Define types
 export type RootStackParamList = {
+  Signup: undefined;
   Login: undefined;
   Tabs: undefined;
   CreateListing: undefined;
@@ -120,6 +122,7 @@ function App() {
           screenOptions={{ headerShown: false }}
         >
           <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Signup" component={SignupScreen} />
           <Stack.Screen name="Tabs" component={BottomTabs} />
           <Stack.Screen name="ListingDetail" component={ListingDetail} />
           <Stack.Screen name="Category" component={Category} />
