@@ -1,5 +1,5 @@
 import React from 'react';
-import { StatusBar } from 'react-native';
+import { StatusBar, View, Image, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 
 // Screens
 import Listings from './src/screens/Listings';
@@ -33,28 +34,103 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator();
 
+interface UserData {
+  id: number;
+  first_name: string;
+  last_name: string;
+  avatar: string | null;
+}
+
+// Custom Profile Tab Icon with Avatar
+const ProfileTabIcon = ({ color, focused, avatar }: { color: string; focused: boolean; avatar: string | null }) => {
+  if (avatar) {
+    return (
+      <View style={[styles.avatarContainer, focused && styles.avatarContainerActive]}>
+        <Image source={{ uri: avatar }} style={styles.avatarIcon} />
+      </View>
+    );
+  }
+  return <Ionicons name="person-outline" size={24} color={color} />;
+};
+
+// Custom Favorites Tab Icon with Badge
+const FavoritesTabIcon = ({ color, favoritesCount }: { color: string; favoritesCount: number }) => {
+  return (
+    <View style={styles.iconContainer}>
+      <Ionicons name="heart-outline" size={24} color={color} />
+      {favoritesCount > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>
+            {favoritesCount > 99 ? '99+' : favoritesCount}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
 // --- Bottom Tabs Layout ---
 function BottomTabs() {
-  const [userId, current_user_id] = useState<number | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [favoritesCount, setFavoritesCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const current_user = await AsyncStorage.getItem("current_user");
-        if (current_user) {
-          const parsed = JSON.parse(current_user);
-          current_user_id(parsed.id);
-        }
-      } catch (error) {
-        console.error('Error loading user data:', error);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadUserData();
   }, []);
 
-  if (loading) return null; // or a loading spinner
+  useEffect(() => {
+    if (userId) {
+      fetchFavoritesCount();
+      // Refresh favorites count every 30 seconds
+      const interval = setInterval(fetchFavoritesCount, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [userId]);
+
+  const loadUserData = async () => {
+    try {
+      const current_user = await AsyncStorage.getItem("current_user");
+      if (current_user) {
+        const parsed = JSON.parse(current_user);
+        setUserId(parsed.id);
+        setUserData(parsed);
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFavoritesCount = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+
+      const response = await axios.get('https://mandimore.com/v1/favorites', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (response.data && response.data.data) {
+        setFavoritesCount(response.data.data.length);
+      }
+    } catch (error) {
+      console.error('Error fetching favorites count:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#f1641e" />
+      </View>
+    );
+  }
 
   return (
     <Tab.Navigator
@@ -71,7 +147,21 @@ function BottomTabs() {
           backgroundColor: '#fff',
           paddingBottom: 5,
         },
-        tabBarIcon: ({ color }) => {
+        tabBarIcon: ({ color, focused }) => {
+          if (route.name === 'Profile') {
+            return (
+              <ProfileTabIcon 
+                color={color} 
+                focused={focused} 
+                avatar={userData?.avatar || null} 
+              />
+            );
+          }
+          
+          if (route.name === 'Favorites') {
+            return <FavoritesTabIcon color={color} favoritesCount={favoritesCount} />;
+          }
+
           let iconName = 'home-outline';
           switch (route.name) {
             case 'Home':
@@ -83,16 +173,18 @@ function BottomTabs() {
             case 'Categories':
               iconName = 'grid-outline';
               break;
-            case 'Favorites':
-              iconName = 'heart-outline';
-              break;
-            case 'Profile':
-              iconName = 'person-outline';
-              break;
           }
           return <Ionicons name={iconName} size={24} color={color} />;
         },
       })}
+      screenListeners={{
+        state: () => {
+          // Refresh favorites count when tab state changes
+          if (userId) {
+            fetchFavoritesCount();
+          }
+        },
+      }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Listings" component={Listings} />
@@ -101,6 +193,12 @@ function BottomTabs() {
         name="Favorites" 
         component={FavoritesScreen} 
         initialParams={{ userId: userId || 0 }}
+        listeners={{
+          focus: () => {
+            // Refresh favorites count when Favorites tab is focused
+            fetchFavoritesCount();
+          },
+        }}
       />
       <Tab.Screen 
         name="Profile" 
@@ -132,5 +230,52 @@ function App() {
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  iconContainer: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    backgroundColor: '#ff4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  avatarContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  avatarContainerActive: {
+    borderColor: '#f1641e',
+  },
+  avatarIcon: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f0f0f0',
+  },
+});
 
 export default App;

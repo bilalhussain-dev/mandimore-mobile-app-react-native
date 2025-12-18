@@ -17,6 +17,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import CreateOrEditProductModal from '../components/createOrEditProductModal';
+import AiSearchModal from '../components/AiSearchModal';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
@@ -49,7 +50,7 @@ interface Product {
 interface UserData {
   first_name: string;
   last_name: string;
-  user_avatar_url: string | null;
+  avatar: string | null; // Fixed: Changed from user_avatar_url to avatar
 }
 
 // Category emoji mapping
@@ -101,6 +102,7 @@ const getCategoryEmoji = (categoryName: string): string => {
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation();
   const [modalVisible, setModalVisible] = useState(false);
+  const [aiSearchVisible, setAiSearchVisible] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -320,6 +322,22 @@ const HomeScreen: React.FC = () => {
     onRefresh();
   }, []);
 
+  const handleOpenAiSearch = useCallback(() => {
+    setAiSearchVisible(true);
+  }, []);
+
+  const handleCloseAiSearch = useCallback(() => {
+    setAiSearchVisible(false);
+  }, []);
+
+  const handleAiProductSelect = useCallback((product: Product) => {
+    navigation.navigate('ListingDetail', { LISTING_DETAIL: product });
+  }, [navigation]);
+
+  const handleAiCategorySelect = useCallback((category: Category) => {
+    navigation.navigate('Category', { category: category });
+  }, [navigation]);
+
   const formatPrice = (price: string) => {
     return `Rs ${parseFloat(price).toLocaleString('en-PK')}`;
   };
@@ -330,8 +348,8 @@ const HomeScreen: React.FC = () => {
       <View style={styles.header}>
         <View style={styles.gradientOverlay} />
         <View style={styles.userSection}>
-          {userData?.user_avatar_url ? (
-            <Image source={{ uri: userData.user_avatar_url }} style={styles.avatar} />
+          {userData?.avatar ? ( // Fixed: Changed from user_avatar_url to avatar
+            <Image source={{ uri: userData.avatar }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>
               <Ionicons name="person" size={20} color="#fff" />
@@ -345,10 +363,20 @@ const HomeScreen: React.FC = () => {
           </View>
         </View>
         
-        <TouchableOpacity style={styles.notificationBtn}>
-          <Ionicons name="notifications-outline" size={22} color="#fff" />
-          <View style={styles.notificationDot} />
-        </TouchableOpacity>
+        {/* Search and Notification Buttons */}
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.searchBtn}
+            onPress={handleOpenAiSearch}
+          >
+            <Ionicons name="search-outline" size={20} color="#fff" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.notificationBtn}>
+            <Ionicons name="notifications-outline" size={22} color="#fff" />
+            <View style={styles.notificationDot} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Inline Stats Row */}
@@ -589,6 +617,14 @@ const HomeScreen: React.FC = () => {
         <Ionicons name="add" size={24} color="#fff" />
       </TouchableOpacity>
 
+      {/* AI Search Modal with Category Selection */}
+      <AiSearchModal
+        visible={aiSearchVisible}
+        onClose={handleCloseAiSearch}
+        onProductSelect={handleAiProductSelect}
+        onCategorySelect={handleAiCategorySelect}
+      />
+
       {/* Always Rendered Modal for Instant Opening */}
       <CreateOrEditProductModal
         visible={modalVisible}
@@ -681,6 +717,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#fff',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  searchBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
   notificationBtn: {
     width: 42,

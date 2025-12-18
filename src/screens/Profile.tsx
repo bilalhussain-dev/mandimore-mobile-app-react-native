@@ -1,4 +1,4 @@
-// ProfileScreen.tsx
+// ProfileScreen.tsx - FIXED (No Infinite Requests)
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -10,14 +10,15 @@ import {
   Image,
   RefreshControl,
   Alert,
-  FlatList,
   Dimensions,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { Ionicons } from "@react-native-vector-icons/ionicons";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import LinearGradient from "react-native-linear-gradient";
+import EditProfileModal from "../components/EditProfileModal";
+import Toast from "react-native-toast-message";
 
 const PRIMARY_COLOR = "#f1641e";
 const { width } = Dimensions.get("window");
@@ -29,6 +30,9 @@ const ProfileScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState<string | null>(null);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const userId = route.params?.PROFILE?.id;
@@ -37,6 +41,31 @@ const ProfileScreen = () => {
     if (userId) fetchProfile();
     getCurrentUser();
   }, [userId]);
+
+  // Listen for profile updates ONLY when screen is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      const checkForUpdates = async () => {
+        try {
+          const updateFlag = await AsyncStorage.getItem('profile_updated');
+          
+          // Only fetch if flag exists AND it's different from last check
+          if (updateFlag && updateFlag !== lastUpdateTimestamp) {
+            console.log('Profile update detected, refreshing...');
+            setLastUpdateTimestamp(updateFlag);
+            await fetchProfile();
+            // Clear the flag after reading
+            await AsyncStorage.removeItem('profile_updated');
+          }
+        } catch (error) {
+          console.error('Error checking for updates:', error);
+        }
+      };
+
+      // Check once when screen focuses
+      checkForUpdates();
+    }, [lastUpdateTimestamp, userId])
+  );
 
   const getCurrentUser = async () => {
     try {
@@ -65,7 +94,12 @@ const ProfileScreen = () => {
       setProfile(response.data.data);
     } catch (error: any) {
       console.log("Error fetching profile:", error.response?.data || error);
-      Alert.alert("Error", "Failed to load profile data.");
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to load profile data',
+        position: 'top',
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -96,14 +130,22 @@ const ProfileScreen = () => {
                 }
               );
 
-              Alert.alert("Success", "Listing deleted successfully!");
-              fetchProfile(); // Refresh the profile
+              Toast.show({
+                type: 'success',
+                text1: 'Deleted! 🗑️',
+                text2: 'Listing deleted successfully',
+                position: 'top',
+              });
+              
+              fetchProfile();
             } catch (error: any) {
               console.error("Error deleting listing:", error);
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to delete listing. Please try again."
-              );
+              Toast.show({
+                type: 'error',
+                text1: 'Delete Failed',
+                text2: error.response?.data?.message || 'Failed to delete listing',
+                position: 'top',
+              });
             } finally {
               setDeletingId(null);
             }
@@ -113,7 +155,8 @@ const ProfileScreen = () => {
     );
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    setMenuVisible(false);
     Alert.alert(
       "Logout",
       "Are you sure you want to logout?",
@@ -124,6 +167,8 @@ const ProfileScreen = () => {
           style: "destructive",
           onPress: async () => {
             await AsyncStorage.removeItem("authToken");
+            await AsyncStorage.removeItem("current_user");
+            await AsyncStorage.removeItem("profile_updated");
             navigation.reset({
               index: 0,
               routes: [{ name: "Login" as never }],
@@ -132,6 +177,44 @@ const ProfileScreen = () => {
         },
       ]
     );
+  };
+
+  const handleEditProfile = () => {
+    setMenuVisible(false);
+    setEditModalVisible(true);
+  };
+
+  const handleDeleteAccount = () => {
+    setMenuVisible(false);
+    Alert.alert(
+      "Delete Account",
+      "Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently deleted.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            Toast.show({
+              type: 'info',
+              text1: 'Coming Soon',
+              text2: 'Account deletion feature will be available soon',
+              position: 'top',
+            });
+          },
+        },
+      ]
+    );
+  };
+
+  const handleUpdateSuccess = async () => {
+    await fetchProfile();
+    // Refresh current user data from localStorage
+    const userDataString = await AsyncStorage.getItem('current_user');
+    if (userDataString) {
+      const userData = JSON.parse(userDataString);
+      setCurrentUserId(userData.id);
+    }
   };
 
   if (loading) {
@@ -176,10 +259,72 @@ const ProfileScreen = () => {
           colors={[PRIMARY_COLOR, "#ff8c4c"]}
           style={styles.headerGradient}
         >
+          {/* Three-Dot Menu Button - Only for own profile */}
+          {isOwnProfile && (
+            <View style={styles.menuWrapper}>
+              <TouchableOpacity
+                style={styles.menuButton}
+                onPress={() => setMenuVisible(!menuVisible)}
+              >
+                <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
+              </TouchableOpacity>
+
+              {/* Dropdown Menu */}
+              {menuVisible && (
+                <>
+                  {/* Invisible overlay to close menu */}
+                  <TouchableOpacity
+                    style={styles.menuOverlay}
+                    activeOpacity={1}
+                    onPress={() => setMenuVisible(false)}
+                  />
+                  
+                  {/* Dropdown Container */}
+                  <View style={styles.dropdownMenu}>
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={handleEditProfile}
+                    >
+                      <View style={styles.dropdownIconCircle}>
+                        <Ionicons name="create-outline" size={18} color={PRIMARY_COLOR} />
+                      </View>
+                      <Text style={styles.dropdownText}>Edit Profile</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.dropdownDivider} />
+
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={handleDeleteAccount}
+                    >
+                      <View style={[styles.dropdownIconCircle, { backgroundColor: '#fff5f5' }]}>
+                        <Ionicons name="trash-outline" size={18} color="#f44336" />
+                      </View>
+                      <Text style={[styles.dropdownText, { color: '#f44336' }]}>Delete Account</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.dropdownDivider} />
+
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={handleLogout}
+                    >
+                      <View style={[styles.dropdownIconCircle, { backgroundColor: '#fff5f5' }]}>
+                        <Ionicons name="log-out-outline" size={18} color="#f44336" />
+                      </View>
+                      <Text style={[styles.dropdownText, { color: '#f44336' }]}>Logout</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          )}
+
           <View style={styles.avatarContainer}>
             <Image
               source={{
                 uri:
+                  profile.avatar ||
                   profile.user_avatar_url ||
                   "https://cdn-icons-png.flaticon.com/512/149/149071.png",
               }}
@@ -281,16 +426,16 @@ const ProfileScreen = () => {
           )}
         </View>
 
-        {/* Logout Button - Only show for own profile */}
-        {isOwnProfile && (
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={22} color={PRIMARY_COLOR} />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        )}
-
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Edit Profile Modal */}
+      <EditProfileModal
+        visible={editModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        profileData={profile}
+        onUpdateSuccess={handleUpdateSuccess}
+      />
     </View>
   );
 };
@@ -320,7 +465,6 @@ const ProductCard = ({
   const images = product.image_urls || [];
   const mainImage = images.length > 0 ? images[0] : "https://via.placeholder.com/400x300?text=No+Image";
 
-  // Create enriched product data with user info
   const enrichedProduct = {
     ...product,
     user: {
@@ -330,7 +474,7 @@ const ProductCard = ({
       username: userProfile.username,
       mobile_number: userProfile.mobile_number,
       whatsapp_number: userProfile.whatsapp_number,
-      user_avatar_url: userProfile.user_avatar_url,
+      user_avatar_url: userProfile.user_avatar_url || userProfile.avatar,
       verified: userProfile.verified,
       email: userProfile.email,
     },
@@ -352,7 +496,6 @@ const ProductCard = ({
       <View style={styles.imageWrapper}>
         <Image source={{ uri: mainImage }} style={styles.productImage} />
         
-        {/* Image Count Badge */}
         {images.length > 1 && (
           <View style={styles.imageBadge}>
             <Ionicons name="images-outline" size={12} color="#fff" />
@@ -360,14 +503,12 @@ const ProductCard = ({
           </View>
         )}
 
-        {/* Health Badge */}
         {product.health_status === "excellent" && (
           <View style={styles.healthBadgeCard}>
             <Ionicons name="shield-checkmark" size={12} color={PRIMARY_COLOR} />
           </View>
         )}
 
-        {/* Delete Button - Only show for own profile */}
         {isOwnProfile && (
           <TouchableOpacity
             style={styles.deleteBtn}
@@ -388,7 +529,6 @@ const ProductCard = ({
           {product.title}
         </Text>
         
-        {/* Breed Badge */}
         <View style={styles.breedContainer}>
           <View style={styles.breedBadge}>
             <Text style={styles.breedText} numberOfLines={1}>
@@ -397,7 +537,6 @@ const ProductCard = ({
           </View>
         </View>
 
-        {/* Details Row */}
         <View style={styles.detailsRow}>
           {product.age && (
             <View style={styles.detailItem}>
@@ -413,7 +552,6 @@ const ProductCard = ({
           )}
         </View>
 
-        {/* Location */}
         {product.address && (
           <View style={styles.locationRow}>
             <Ionicons name="location-outline" size={12} color="#666" />
@@ -423,7 +561,6 @@ const ProductCard = ({
           </View>
         )}
 
-        {/* Price Row */}
         <View style={styles.priceRow}>
           <Text style={styles.productPrice}>
             {formatPrice(product.price)}
@@ -460,6 +597,70 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
+    position: 'relative',
+  },
+  menuWrapper: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1000,
+  },
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: -width,
+    width: width * 2,
+    height: 1000,
+    backgroundColor: 'transparent',
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: 200,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  dropdownIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fff5f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  dropdownText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+  },
+  dropdownDivider: {
+    height: 1,
+    backgroundColor: '#f0f0f0',
+    marginHorizontal: 16,
+    marginVertical: 4,
   },
   avatarContainer: {
     position: "relative",
@@ -741,26 +942,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff5f0",
     justifyContent: "center",
     alignItems: "center",
-  },
-
-  logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: PRIMARY_COLOR,
-    marginHorizontal: 16,
-    marginTop: 24,
-    paddingVertical: 14,
-    borderRadius: 30,
-    elevation: 2,
-  },
-  logoutText: {
-    color: PRIMARY_COLOR,
-    fontWeight: "700",
-    marginLeft: 8,
-    fontSize: 16,
   },
 });
 
