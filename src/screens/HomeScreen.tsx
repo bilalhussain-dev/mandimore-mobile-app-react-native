@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import CreateOrEditProductModal from '../components/createOrEditProductModal';
 import AiSearchModal from '../components/AiSearchModal';
+import appEvents, { EVENTS } from '../utils/EventEmitter';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
@@ -50,7 +51,7 @@ interface Product {
 interface UserData {
   first_name: string;
   last_name: string;
-  avatar: string | null; // Fixed: Changed from user_avatar_url to avatar
+  avatar: string | null;
 }
 
 // Category emoji mapping
@@ -112,8 +113,8 @@ const HomeScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [favoriteIds, setFavoriteIds] = useState(new Set());
-  const [loadingFavorites, setLoadingFavorites] = useState({});
+  const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
+  const [loadingFavorites, setLoadingFavorites] = useState<{[key: number]: boolean}>({});
 
   useEffect(() => {
     fetchUserData();
@@ -122,17 +123,56 @@ const HomeScreen: React.FC = () => {
     fetchUserFavorites();
   }, []);
 
+  // Listen for profile updates when screen is focused
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
+      // Refresh user data when screen focuses
+      fetchUserData();
       fetchUserFavorites();
     }, [])
   );
+
+  // Listen for profile updates via event
+  useEffect(() => {
+    const unsubscribe = appEvents.on(EVENTS.PROFILE_UPDATED, () => {
+      console.log('HomeScreen: Profile updated event received');
+      fetchUserData();
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Listen for listing updates (create, edit, delete)
+  useEffect(() => {
+    const unsubscribeUpdate = appEvents.on(EVENTS.LISTING_UPDATED, (updatedListing: Product) => {
+      console.log('HomeScreen: Listing updated event received', updatedListing?.id);
+      // Update the specific listing in the products array
+      setProducts(prev => prev.map(p => p.id === updatedListing.id ? { ...p, ...updatedListing } : p));
+    });
+
+    const unsubscribeDelete = appEvents.on(EVENTS.LISTING_DELETED, (deletedId: number) => {
+      console.log('HomeScreen: Listing deleted event received', deletedId);
+      setProducts(prev => prev.filter(p => p.id !== deletedId));
+    });
+
+    const unsubscribeCreate = appEvents.on(EVENTS.LISTING_CREATED, () => {
+      console.log('HomeScreen: Listing created event received');
+      fetchProducts(1, true);
+    });
+
+    return () => {
+      unsubscribeUpdate();
+      unsubscribeDelete();
+      unsubscribeCreate();
+    };
+  }, []);
 
   const fetchUserData = async () => {
     try {
       const userDataString = await AsyncStorage.getItem('current_user');
       if (userDataString) {
         const user = JSON.parse(userDataString);
+        console.log('HomeScreen: User data loaded', user.first_name, user.avatar ? 'with avatar' : 'no avatar');
         setUserData(user);
       }
     } catch (error) {
@@ -219,10 +259,13 @@ const HomeScreen: React.FC = () => {
       });
 
       if (response.data && response.data.data) {
-        const ids = new Set(
-          response.data.data.map(fav => fav.listing?.id || fav.listing_id || fav.id)
+        const ids = new Set<number>(
+          response.data.data.map((fav: any) => fav.listing?.id || fav.listing_id || fav.id)
         );
         setFavoriteIds(ids);
+        
+        // Emit the current count to sync with bottom tabs
+        appEvents.emit(EVENTS.FAVORITES_UPDATED, ids.size);
       }
     } catch (error) {
       console.error('Error fetching favorites:', error);
@@ -242,16 +285,20 @@ const HomeScreen: React.FC = () => {
 
       setLoadingFavorites(prev => ({ ...prev, [listingId]: true }));
 
-      setFavoriteIds(prev => {
-        const newSet = new Set(prev);
-        if (isFavorite) {
-          newSet.delete(listingId);
-        } else {
-          newSet.add(listingId);
-        }
-        return newSet;
-      });
+      // Optimistically update UI immediately
+      const newFavoriteIds = new Set(favoriteIds);
+      if (isFavorite) {
+        newFavoriteIds.delete(listingId);
+      } else {
+        newFavoriteIds.add(listingId);
+      }
+      setFavoriteIds(newFavoriteIds);
 
+      // EMIT EVENT IMMEDIATELY for instant bottom tab update
+      appEvents.emit(EVENTS.FAVORITES_UPDATED, newFavoriteIds.size);
+      console.log('HomeScreen: Emitted favorites update, new count:', newFavoriteIds.size);
+
+      // Make API call
       if (isFavorite) {
         await axios.delete(`https://mandimore.com/v1/favorites/${listingId}`, {
           headers: {
@@ -270,15 +317,17 @@ const HomeScreen: React.FC = () => {
     } catch (error) {
       console.error('Error toggling favorite:', error);
 
-      setFavoriteIds(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(listingId)) {
-          newSet.delete(listingId);
-        } else {
-          newSet.add(listingId);
-        }
-        return newSet;
-      });
+      // Revert on error
+      const revertedIds = new Set(favoriteIds);
+      if (revertedIds.has(listingId)) {
+        revertedIds.delete(listingId);
+      } else {
+        revertedIds.add(listingId);
+      }
+      setFavoriteIds(revertedIds);
+      
+      // Emit reverted count
+      appEvents.emit(EVENTS.FAVORITES_UPDATED, revertedIds.size);
 
       Alert.alert('Error', 'Failed to update favorites. Please try again.');
     } finally {
@@ -289,7 +338,12 @@ const HomeScreen: React.FC = () => {
   const onRefresh = async () => {
     setRefreshing(true);
     setHasMore(true);
-    await Promise.all([fetchCategories(), fetchProducts(1, true), fetchUserFavorites()]);
+    await Promise.all([
+      fetchUserData(),
+      fetchCategories(), 
+      fetchProducts(1, true), 
+      fetchUserFavorites()
+    ]);
     setRefreshing(false);
   };
 
@@ -348,7 +402,7 @@ const HomeScreen: React.FC = () => {
       <View style={styles.header}>
         <View style={styles.gradientOverlay} />
         <View style={styles.userSection}>
-          {userData?.avatar ? ( // Fixed: Changed from user_avatar_url to avatar
+          {userData?.avatar ? (
             <Image source={{ uri: userData.avatar }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>

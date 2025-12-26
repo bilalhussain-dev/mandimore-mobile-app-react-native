@@ -12,32 +12,80 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { Ionicons } from '@react-native-vector-icons/ionicons';
+import { Ionicons } from "@react-native-vector-icons/ionicons";
 import Swiper from 'react-native-swiper';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import CreateOrEditProductModal, { ProductFormData } from '../components/createOrEditProductModal';
 import ReportProductModal from '../components/ReportProductModal';
+import appEvents, { EVENTS } from '../utils/EventEmitter';
+
 const { width } = Dimensions.get('window');
+
+interface ListingData {
+  id: number;
+  title: string;
+  breed: string;
+  description: string;
+  age: string;
+  color: string;
+  weight: string;
+  height: string;
+  price: string;
+  health_status: string;
+  address: string;
+  image_urls: string[];
+  country: string;
+  province: string;
+  latitude: string;
+  longitude: string;
+  category_id: number;
+  custom_button: string;
+  user: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    username: string;
+    mobile_number: string;
+    whatsapp_number: string;
+    user_avatar_url: string;
+    verified: boolean;
+  };
+}
 
 const ListingDetail = () => {
   const route = useRoute();
   const navigation = useNavigation();
-  const { LISTING_DETAIL } = route.params || {};
+  const [listingData, setListingData] = useState<ListingData | null>(
+    (route.params as any)?.LISTING_DETAIL || null
+  );
 
   const [isFavorite, setIsFavorite] = useState(false);
   const [loadingFavorite, setLoadingFavorite] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    if (LISTING_DETAIL?.id) {
+    if (listingData?.id) {
       checkIfFavorite();
     }
     getCurrentUser();
-  }, [LISTING_DETAIL?.id]);
+  }, [listingData?.id]);
+
+  // Listen for listing updates
+  useEffect(() => {
+    const unsubscribe = appEvents.on(EVENTS.LISTING_UPDATED, (updatedListing: ListingData) => {
+      if (updatedListing?.id === listingData?.id) {
+        console.log('ListingDetail: Received update for current listing');
+        setListingData(prev => prev ? { ...prev, ...updatedListing } : null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [listingData?.id]);
 
   const getCurrentUser = async () => {
     try {
@@ -64,10 +112,13 @@ const ListingDetail = () => {
       });
 
       if (response.data && response.data.data) {
-        const favoriteIds = response.data.data.map(
-          fav => fav.listing?.id || fav.listing_id || fav.id
+        const ids = new Set<number>(
+          response.data.data.map(
+            (fav: any) => fav.listing?.id || fav.listing_id || fav.id
+          )
         );
-        setIsFavorite(favoriteIds.includes(LISTING_DETAIL.id));
+        setFavoriteIds(ids);
+        setIsFavorite(ids.has(listingData?.id || 0));
       }
     } catch (error) {
       console.error('Error checking favorite status:', error);
@@ -75,6 +126,8 @@ const ListingDetail = () => {
   };
 
   const toggleFavorite = async () => {
+    if (!listingData) return;
+    
     try {
       const token = await AsyncStorage.getItem('authToken');
       
@@ -89,12 +142,26 @@ const ListingDetail = () => {
       setLoadingFavorite(true);
 
       // Optimistic UI update
-      setIsFavorite(!isFavorite);
+      const newIsFavorite = !isFavorite;
+      setIsFavorite(newIsFavorite);
+
+      // Update favoriteIds set
+      const newFavoriteIds = new Set(favoriteIds);
+      if (newIsFavorite) {
+        newFavoriteIds.add(listingData.id);
+      } else {
+        newFavoriteIds.delete(listingData.id);
+      }
+      setFavoriteIds(newFavoriteIds);
+
+      // EMIT EVENT IMMEDIATELY for instant bottom tab update
+      appEvents.emit(EVENTS.FAVORITES_UPDATED, newFavoriteIds.size);
+      console.log('ListingDetail: Emitted favorites update, new count:', newFavoriteIds.size);
 
       if (isFavorite) {
         // Remove from favorites
         await axios.delete(
-          `https://mandimore.com/v1/favorites/${LISTING_DETAIL.id}`,
+          `https://mandimore.com/v1/favorites/${listingData.id}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -105,7 +172,7 @@ const ListingDetail = () => {
       } else {
         // Add to favorites
         await axios.post(
-          `https://mandimore.com/v1/favorites/${LISTING_DETAIL.id}`,
+          `https://mandimore.com/v1/favorites/${listingData.id}`,
           {},
           {
             headers: {
@@ -120,25 +187,40 @@ const ListingDetail = () => {
       
       // Revert optimistic update on error
       setIsFavorite(!isFavorite);
+      
+      // Revert favoriteIds
+      const revertedIds = new Set(favoriteIds);
+      if (isFavorite) {
+        revertedIds.add(listingData?.id || 0);
+      } else {
+        revertedIds.delete(listingData?.id || 0);
+      }
+      setFavoriteIds(revertedIds);
+      appEvents.emit(EVENTS.FAVORITES_UPDATED, revertedIds.size);
+      
       Alert.alert('Error', 'Failed to update favorites. Please try again.');
     } finally {
       setLoadingFavorite(false);
     }
   };
 
-  const handleEditSubmit = () => {
+  const handleEditSubmit = (updatedData?: any) => {
     setEditModalVisible(false);
-    Alert.alert('Success', 'Listing updated successfully!', [
-      {
-        text: 'OK',
-        onPress: () => {
-          navigation.goBack();
-        }
-      }
-    ]);
+    
+    // If we have updated data, emit the event and update local state
+    if (updatedData && listingData) {
+      const updatedListing = { ...listingData, ...updatedData };
+      setListingData(updatedListing);
+      
+      // Emit event for other screens to update
+      appEvents.emit(EVENTS.LISTING_UPDATED, updatedListing);
+      console.log('ListingDetail: Emitted listing updated event', updatedListing.id);
+    }
+    
+    Alert.alert('Success', 'Listing updated successfully!');
   };
 
-  if (!LISTING_DETAIL) return null;
+  if (!listingData) return null;
 
   const {
     title,
@@ -159,7 +241,7 @@ const ListingDetail = () => {
     longitude,
     category_id,
     custom_button,
-  } = LISTING_DETAIL;
+  } = listingData;
 
   const images = image_urls && image_urls.length > 0 ? image_urls : [];
 
@@ -208,7 +290,7 @@ const ListingDetail = () => {
     username: user?.username,
   };
 
-  const stripHtml = html => {
+  const stripHtml = (html: string) => {
     return html?.replace(/<[^>]*>?/gm, '').trim() || 'No description available';
   };
 
@@ -427,14 +509,14 @@ const ListingDetail = () => {
         onSubmit={handleEditSubmit}
         editMode={true}
         initialData={initialEditData}
-        listingId={LISTING_DETAIL.id}
+        listingId={listingData.id}
       />
 
       {/* Report Product Modal */}
       <ReportProductModal
         visible={reportModalVisible}
         onClose={() => setReportModalVisible(false)}
-        productId={LISTING_DETAIL.id}
+        productId={listingData.id}
       />
     </View>
   );

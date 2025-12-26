@@ -8,6 +8,7 @@ import { Ionicons } from "@react-native-vector-icons/ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import appEvents, { EVENTS } from './src/utils/EventEmitter';
 
 // Screens
 import Listings from './src/screens/Listings';
@@ -20,6 +21,7 @@ import Category from './src/screens/Category';
 import FavoritesScreen from './src/screens/FavoritesScreen';
 import CreateListing from './src/screens/CreateListing';
 import SignupScreen from './src/screens/SignupScreen';
+import ReelsScreen from './src/screens/ReelsScreen';
 
 // Define types
 export type RootStackParamList = {
@@ -29,6 +31,7 @@ export type RootStackParamList = {
   CreateListing: undefined;
   ListingDetail: { id?: number };
   Category: undefined;
+  Categories: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -83,11 +86,28 @@ function BottomTabs() {
   useEffect(() => {
     if (userId) {
       fetchFavoritesCount();
-      // Refresh favorites count every 30 seconds
-      const interval = setInterval(fetchFavoritesCount, 30000);
-      return () => clearInterval(interval);
     }
   }, [userId]);
+
+  // Listen for favorites updates - INSTANT UPDATE
+  useEffect(() => {
+    const unsubscribe = appEvents.on(EVENTS.FAVORITES_UPDATED, (newCount: number) => {
+      console.log('BottomTabs: Favorites count updated instantly to:', newCount);
+      setFavoritesCount(newCount);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Listen for profile updates
+  useEffect(() => {
+    const unsubscribe = appEvents.on(EVENTS.PROFILE_UPDATED, () => {
+      console.log('BottomTabs: Profile updated, refreshing user data...');
+      loadUserData();
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const loadUserData = async () => {
     try {
@@ -117,7 +137,8 @@ function BottomTabs() {
       });
 
       if (response.data && response.data.data) {
-        setFavoritesCount(response.data.data.length);
+        const count = response.data.data.length;
+        setFavoritesCount(count);
       }
     } catch (error) {
       console.error('Error fetching favorites count:', error);
@@ -162,43 +183,42 @@ function BottomTabs() {
             return <FavoritesTabIcon color={color} favoritesCount={favoritesCount} />;
           }
 
-          let iconName = 'home-outline';
+          let iconName: string = 'home-outline';
           switch (route.name) {
             case 'Home':
-              iconName = 'home-outline';
+              iconName = focused ? 'home' : 'home-outline';
               break;
             case 'Listings':
-              iconName = 'list-outline';
+              iconName = focused ? 'list' : 'list-outline';
               break;
-            case 'Categories':
-              iconName = 'grid-outline';
+            case 'Reels':
+              iconName = focused ? 'videocam' : 'videocam-outline';
               break;
           }
           return <Ionicons name={iconName} size={24} color={color} />;
         },
       })}
-      screenListeners={{
-        state: () => {
-          // Refresh favorites count when tab state changes
-          if (userId) {
-            fetchFavoritesCount();
-          }
-        },
-      }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Listings" component={Listings} />
-      <Tab.Screen name="Categories" component={CategoriesScreen} />
+      <Tab.Screen 
+        name="Reels" 
+        component={ReelsScreen}
+        options={{
+          tabBarStyle: {
+            height: 60,
+            borderTopWidth: 0,
+            backgroundColor: '#000',
+            paddingBottom: 5,
+          },
+          tabBarActiveTintColor: '#fff',
+          tabBarInactiveTintColor: '#666',
+        }}
+      />
       <Tab.Screen 
         name="Favorites" 
         component={FavoritesScreen} 
         initialParams={{ userId: userId || 0 }}
-        listeners={{
-          focus: () => {
-            // Refresh favorites count when Favorites tab is focused
-            fetchFavoritesCount();
-          },
-        }}
       />
       <Tab.Screen 
         name="Profile" 
@@ -224,6 +244,7 @@ function App() {
           <Stack.Screen name="Tabs" component={BottomTabs} />
           <Stack.Screen name="ListingDetail" component={ListingDetail} />
           <Stack.Screen name="Category" component={Category} />
+          <Stack.Screen name="Categories" component={CategoriesScreen} />
           <Stack.Screen name="CreateListing" component={CreateListing} />
         </Stack.Navigator>
       </NavigationContainer>
