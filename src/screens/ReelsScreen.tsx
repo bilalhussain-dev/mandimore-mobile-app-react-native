@@ -33,12 +33,12 @@ const DEMO_REELS = [
       avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
       verified: true,
     },
-    description: '🐕 Beautiful Golden Retriever puppies playing in the garden! #goldenretriever #puppies #petlove',
+    description: '🐕 Beautiful Golden Retriever puppies playing in the garden! These adorable 8-week-old puppies are ready for their forever homes. Fully vaccinated and dewormed. Contact us for more details! #goldenretriever #puppies #petlove #puppiesforsale',
     likes: 2453,
     comments: 187,
     shares: 45,
-    music: 'Happy Pets - Original Sound',
     isLiked: false,
+    price: 'Rs. 45,000',
   },
   {
     id: '2',
@@ -49,12 +49,12 @@ const DEMO_REELS = [
       avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
       verified: true,
     },
-    description: '😺 Persian cats grooming session! So fluffy and adorable 💕 #persiancat #catgrooming #catlover',
+    description: '😺 Persian cats grooming session! So fluffy and adorable 💕 Premium quality Persian kittens available. Triple coated, punch face, healthy and active. With all documents and vaccination records. #persiancat #catgrooming #catlover',
     likes: 5621,
     comments: 342,
     shares: 128,
-    music: 'Cute Cats Melody',
     isLiked: true,
+    price: 'Rs. 35,000',
   },
   {
     id: '3',
@@ -65,12 +65,12 @@ const DEMO_REELS = [
       avatar: 'https://randomuser.me/api/portraits/men/67.jpg',
       verified: false,
     },
-    description: '🦜 Amazing talking parrot! Listen to what he says 😂 #parrot #talkingbird #funnyanimals',
+    description: '🦜 Amazing talking parrot! Listen to what he says 😂 This African Grey parrot is 2 years old and knows over 50 words. Very friendly and loves to interact. Comes with cage and accessories. #parrot #talkingbird #funnyanimals',
     likes: 8934,
     comments: 567,
     shares: 234,
-    music: 'Birds Chirping - Nature Sounds',
     isLiked: false,
+    price: 'Rs. 120,000',
   },
   {
     id: '4',
@@ -81,12 +81,12 @@ const DEMO_REELS = [
       avatar: 'https://randomuser.me/api/portraits/women/28.jpg',
       verified: true,
     },
-    description: '🐰 Fluffy bunnies eating carrots! So cute 🥕 #rabbit #bunny #cuteanimals #petcare',
+    description: '🐰 Fluffy bunnies eating carrots! So cute 🥕 Holland Lop rabbits available. These cute little bunnies are 6 weeks old and ready to hop into your heart. Very docile and great with kids. #rabbit #bunny #cuteanimals #petcare',
     likes: 3456,
     comments: 201,
     shares: 89,
-    music: 'Soft Piano - Relaxing',
     isLiked: false,
+    price: 'Rs. 8,000',
   },
   {
     id: '5',
@@ -97,12 +97,12 @@ const DEMO_REELS = [
       avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
       verified: false,
     },
-    description: '🐠 Beautiful aquarium setup tour! Tropical fish collection 🌊 #aquarium #tropicalfish #fishkeeping',
+    description: '🐠 Beautiful aquarium setup tour! Tropical fish collection 🌊 Complete aquarium setup for sale including tank, filter, heater, lights, and 20+ tropical fish. Perfect for beginners or experienced hobbyists. #aquarium #tropicalfish #fishkeeping',
     likes: 1987,
     comments: 145,
     shares: 67,
-    music: 'Ocean Waves - Ambient',
     isLiked: true,
+    price: 'Rs. 25,000',
   },
   {
     id: '6',
@@ -113,12 +113,12 @@ const DEMO_REELS = [
       avatar: 'https://randomuser.me/api/portraits/women/52.jpg',
       verified: true,
     },
-    description: '🐴 Morning horse training session! Such majestic creatures 🌅 #horse #horseriding #equestrian',
+    description: '🐴 Morning horse training session! Such majestic creatures 🌅 Beautiful Arabian mare available. 4 years old, well-trained, gentle temperament. Perfect for experienced riders. All health records available. #horse #horseriding #equestrian',
     likes: 6789,
     comments: 423,
     shares: 156,
-    music: 'Country Roads - Acoustic',
     isLiked: false,
+    price: 'Rs. 350,000',
   },
 ];
 
@@ -135,8 +135,8 @@ interface Reel {
   likes: number;
   comments: number;
   shares: number;
-  music: string;
   isLiked: boolean;
+  price?: string;
 }
 
 interface ReelItemProps {
@@ -146,6 +146,7 @@ interface ReelItemProps {
   onComment: (id: string) => void;
   onShare: (item: Reel) => void;
   onUserPress: (userId: number) => void;
+  onBuyPress: (item: Reel) => void;
 }
 
 const ReelItem: React.FC<ReelItemProps> = ({
@@ -155,17 +156,23 @@ const ReelItem: React.FC<ReelItemProps> = ({
   onComment,
   onShare,
   onUserPress,
+  onBuyPress,
 }) => {
   const [paused, setPaused] = useState(!isActive);
   const [loading, setLoading] = useState(true);
   const [liked, setLiked] = useState(item.isLiked);
   const [likesCount, setLikesCount] = useState(item.likes);
   const [showPlayIcon, setShowPlayIcon] = useState(false);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const heartScale = useRef(new Animated.Value(1)).current;
   const playIconOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setPaused(!isActive);
+    // Reset description expansion when reel changes
+    if (!isActive) {
+      setIsDescriptionExpanded(false);
+    }
   }, [isActive]);
 
   const handleVideoPress = () => {
@@ -221,6 +228,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
         useNativeDriver: true,
       }),
     ]).start();
+  };
+
+  const toggleDescription = () => {
+    setIsDescriptionExpanded(!isDescriptionExpanded);
   };
 
   const formatCount = (count: number): string => {
@@ -287,14 +298,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
         />
       </TouchableOpacity>
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Reels</Text>
-        <TouchableOpacity style={styles.cameraButton}>
-          <Ionicons name="camera-outline" size={26} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
       {/* Right Action Buttons */}
       <View style={styles.actionsContainer}>
         {/* User Avatar */}
@@ -337,23 +340,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
           <Ionicons name="paper-plane-outline" size={28} color="#fff" />
           <Text style={styles.actionText}>{formatCount(item.shares)}</Text>
         </TouchableOpacity>
-
-        {/* More Button */}
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
-        </TouchableOpacity>
-
-        {/* Music Disc */}
-        <Animated.View style={styles.musicDisc}>
-          <Image
-            source={{ uri: item.user.avatar }}
-            style={styles.musicDiscImage}
-          />
-        </Animated.View>
       </View>
 
       {/* Bottom Info */}
-      <View style={styles.bottomInfo}>
+      <View style={[styles.bottomInfo, isDescriptionExpanded && styles.bottomInfoExpanded]}>
         {/* User Info */}
         <TouchableOpacity
           style={styles.userInfo}
@@ -367,25 +357,36 @@ const ReelItem: React.FC<ReelItemProps> = ({
           )}
         </TouchableOpacity>
 
-        {/* Description */}
-        <Text style={styles.description} numberOfLines={2}>
-          {item.description}
-        </Text>
+        {/* Description - Expandable */}
+        <TouchableOpacity onPress={toggleDescription} activeOpacity={0.8}>
+          <View style={[
+            styles.descriptionContainer,
+            isDescriptionExpanded && styles.descriptionContainerExpanded
+          ]}>
+            <Text 
+              style={styles.description} 
+              numberOfLines={isDescriptionExpanded ? undefined : 2}
+            >
+              {item.description}
+            </Text>
+            {!isDescriptionExpanded && item.description.length > 80 && (
+              <Text style={styles.seeMoreText}>... more</Text>
+            )}
+            {isDescriptionExpanded && (
+              <Text style={styles.seeLessText}>Show less</Text>
+            )}
+          </View>
+        </TouchableOpacity>
 
-        {/* Music Info */}
-        <View style={styles.musicInfo}>
-          <Ionicons name="musical-notes" size={14} color="#fff" />
-          <Text style={styles.musicText} numberOfLines={1}>
-            {item.music}
-          </Text>
-        </View>
+        {/* Buy This CTA Button - Glass Effect */}
+        
       </View>
     </View>
   );
 };
 
 const ReelsScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const [reels, setReels] = useState<Reel[]>(DEMO_REELS);
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
@@ -398,6 +399,10 @@ const ReelsScreen: React.FC = () => {
       };
     }, [])
   );
+
+  const handleBackPress = () => {
+    navigation.navigate('Home');
+  };
 
   const handleViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
@@ -438,6 +443,13 @@ const ReelsScreen: React.FC = () => {
     console.log('Navigate to user:', userId);
   }, []);
 
+  const handleBuyPress = useCallback((item: Reel) => {
+    // Navigate to product details or purchase flow
+    console.log('Buy pressed for:', item.id, 'Price:', item.price);
+    // You can navigate to product details screen here
+    // navigation.navigate('ProductDetails', { productId: item.id });
+  }, []);
+
   const renderItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => (
       <ReelItem
@@ -447,9 +459,10 @@ const ReelsScreen: React.FC = () => {
         onComment={handleComment}
         onShare={handleShare}
         onUserPress={handleUserPress}
+        onBuyPress={handleBuyPress}
       />
     ),
-    [activeIndex, handleLike, handleComment, handleShare, handleUserPress]
+    [activeIndex, handleLike, handleComment, handleShare, handleUserPress, handleBuyPress]
   );
 
   const getItemLayout = useCallback(
@@ -468,6 +481,23 @@ const ReelsScreen: React.FC = () => {
         backgroundColor="transparent"
         translucent
       />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={handleBackPress}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Reels</Text>
+        </View>
+        <TouchableOpacity style={styles.cameraButton}>
+          <Ionicons name="camera-outline" size={26} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         ref={flatListRef}
         data={reels}
@@ -553,6 +583,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     zIndex: 10,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
   headerTitle: {
     fontSize: 22,
     fontWeight: '800',
@@ -573,8 +616,8 @@ const styles = StyleSheet.create({
   // Actions
   actionsContainer: {
     position: 'absolute',
-    right: 12,
-    bottom: 100,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
   },
   avatarButton: {
@@ -613,26 +656,16 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
-  musicDisc: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    borderWidth: 8,
-    borderColor: '#333',
-    overflow: 'hidden',
-    marginTop: 5,
-  },
-  musicDiscImage: {
-    width: '100%',
-    height: '100%',
-  },
 
   // Bottom Info
   bottomInfo: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 0,
     left: 12,
     right: 80,
+  },
+  bottomInfoExpanded: {
+    right: 12,
   },
   userInfo: {
     flexDirection: 'row',
@@ -653,30 +686,63 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 1,
   },
+  descriptionContainer: {
+    marginBottom: 12,
+  },
+  descriptionContainerExpanded: {
+    marginBottom: 16,
+  },
   description: {
     color: '#fff',
     fontSize: 14,
     lineHeight: 20,
-    marginBottom: 10,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+    width:'80%'
   },
-  musicInfo: {
+  seeMoreText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  seeLessText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+
+  // Buy Button - Glass Effect
+ 
+  buyButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 100,
     backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
-  musicText: {
+  buyButtonText: {
     color: '#fff',
-    fontSize: 12,
-    marginLeft: 6,
-    fontWeight: '500',
-    maxWidth: 180,
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 10,
+    marginRight: 10,
+  },
+  buyButtonPrice: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    backgroundColor: 'rgba(241,100,30,0.8)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
 });
 
