@@ -15,20 +15,39 @@ import { Ionicons } from "@react-native-vector-icons/ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from 'axios';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import appEvents, { EVENTS } from '../utils/EventEmitter';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
 
 const API_URL = 'https://mandimore.com/v1/fetch_all_listings';
 
+interface Listing {
+  id: number;
+  title: string;
+  breed: string;
+  price: string;
+  address: string;
+  age: string;
+  weight?: string;
+  image_urls: string[];
+  health_status: string;
+  user: {
+    id: number;
+    first_name: string;
+    verified: boolean;
+    user_avatar_url: string | null;
+  };
+}
+
 const ListingsScreen = () => {
   const navigation = useNavigation();
-  const [listings, setListings] = useState([]);
-  const [filteredListings, setFilteredListings] = useState([]);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [filteredListings, setFilteredListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [favoriteIds, setFavoriteIds] = useState(new Set());
-  const [loadingFavorites, setLoadingFavorites] = useState({});
+  const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
+  const [loadingFavorites, setLoadingFavorites] = useState<{[key: number]: boolean}>({});
 
   const categories = ['All', 'Dogs', 'Cats', 'Birds', 'Livestock', 'Others'];
 
@@ -37,12 +56,38 @@ const ListingsScreen = () => {
     fetchUserFavorites();
   }, []);
 
-  // 🔥 Auto-refresh when returning from detail screen
+  // Auto-refresh when returning from detail screen
   useFocusEffect(
     React.useCallback(() => {
       fetchUserFavorites();
     }, [])
   );
+
+  // Listen for listing updates (create, edit, delete)
+  useEffect(() => {
+    const unsubscribeUpdate = appEvents.on(EVENTS.LISTING_UPDATED, (updatedListing: Listing) => {
+      console.log('ListingsScreen: Listing updated event received', updatedListing?.id);
+      setListings(prev => prev.map(l => l.id === updatedListing.id ? { ...l, ...updatedListing } : l));
+      setFilteredListings(prev => prev.map(l => l.id === updatedListing.id ? { ...l, ...updatedListing } : l));
+    });
+
+    const unsubscribeDelete = appEvents.on(EVENTS.LISTING_DELETED, (deletedId: number) => {
+      console.log('ListingsScreen: Listing deleted event received', deletedId);
+      setListings(prev => prev.filter(l => l.id !== deletedId));
+      setFilteredListings(prev => prev.filter(l => l.id !== deletedId));
+    });
+
+    const unsubscribeCreate = appEvents.on(EVENTS.LISTING_CREATED, () => {
+      console.log('ListingsScreen: Listing created event received');
+      fetchListings();
+    });
+
+    return () => {
+      unsubscribeUpdate();
+      unsubscribeDelete();
+      unsubscribeCreate();
+    };
+  }, []);
 
   useEffect(() => {
     filterListings();
@@ -82,17 +127,20 @@ const ListingsScreen = () => {
       });
 
       if (response.data && response.data.data) {
-        const ids = new Set(
-          response.data.data.map(fav => fav.listing?.id || fav.listing_id || fav.id)
+        const ids = new Set<number>(
+          response.data.data.map((fav: any) => fav.listing?.id || fav.listing_id || fav.id)
         );
         setFavoriteIds(ids);
+        
+        // Emit the current count to sync with bottom tabs
+        appEvents.emit(EVENTS.FAVORITES_UPDATED, ids.size);
       }
     } catch (error) {
       console.error('Error fetching favorites:', error);
     }
   };
 
-  const toggleFavorite = async (listingId) => {
+  const toggleFavorite = async (listingId: number) => {
     try {
       const token = await AsyncStorage.getItem('authToken');
 
@@ -110,15 +158,17 @@ const ListingsScreen = () => {
       setLoadingFavorites(prev => ({ ...prev, [listingId]: true }));
 
       // Optimistic UI update
-      setFavoriteIds(prev => {
-        const newSet = new Set(prev);
-        if (isFavorite) {
-          newSet.delete(listingId);
-        } else {
-          newSet.add(listingId);
-        }
-        return newSet;
-      });
+      const newFavoriteIds = new Set(favoriteIds);
+      if (isFavorite) {
+        newFavoriteIds.delete(listingId);
+      } else {
+        newFavoriteIds.add(listingId);
+      }
+      setFavoriteIds(newFavoriteIds);
+
+      // EMIT EVENT IMMEDIATELY for instant bottom tab update
+      appEvents.emit(EVENTS.FAVORITES_UPDATED, newFavoriteIds.size);
+      console.log('ListingsScreen: Emitted favorites update, new count:', newFavoriteIds.size);
 
       // Make API call
       if (isFavorite) {
@@ -149,15 +199,16 @@ const ListingsScreen = () => {
       console.error('Error toggling favorite:', error);
 
       // Revert optimistic update on error
-      setFavoriteIds(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(listingId)) {
-          newSet.delete(listingId);
-        } else {
-          newSet.add(listingId);
-        }
-        return newSet;
-      });
+      const revertedIds = new Set(favoriteIds);
+      if (revertedIds.has(listingId)) {
+        revertedIds.delete(listingId);
+      } else {
+        revertedIds.add(listingId);
+      }
+      setFavoriteIds(revertedIds);
+      
+      // Emit reverted count
+      appEvents.emit(EVENTS.FAVORITES_UPDATED, revertedIds.size);
 
       Alert.alert('Error', 'Failed to update favorites. Please try again.');
     } finally {
@@ -177,11 +228,11 @@ const ListingsScreen = () => {
     setFilteredListings(filtered);
   };
 
-  const formatPrice = (price) => {
+  const formatPrice = (price: string) => {
     return `Rs ${parseFloat(price).toLocaleString('en-PK')}`;
   };
 
-  const renderCategory = ({ item }) => (
+  const renderCategory = ({ item }: { item: string }) => (
     <TouchableOpacity
       style={[
         styles.categoryChip,
@@ -198,7 +249,7 @@ const ListingsScreen = () => {
     </TouchableOpacity>
   );
 
-  const renderItem = ({ item }) => {
+  const renderItem = ({ item }: { item: Listing }) => {
     const isFavorite = favoriteIds.has(item.id);
     const isLoadingFav = loadingFavorites[item.id];
 
@@ -377,7 +428,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 50,
     paddingBottom: 16,
     backgroundColor: '#fff',
   },

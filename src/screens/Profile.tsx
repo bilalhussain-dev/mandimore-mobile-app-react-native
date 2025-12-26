@@ -1,4 +1,4 @@
-// ProfileScreen.tsx - FIXED (No Infinite Requests)
+// ProfileScreen.tsx - With instant listing updates
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -19,20 +19,32 @@ import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/nativ
 import LinearGradient from "react-native-linear-gradient";
 import EditProfileModal from "../components/EditProfileModal";
 import Toast from "react-native-toast-message";
+import appEvents, { EVENTS } from "../utils/EventEmitter";
 
 const PRIMARY_COLOR = "#f1641e";
 const { width } = Dimensions.get("window");
 const CARD_WIDTH = (width - 48) / 2;
 
+interface Product {
+  id: number;
+  title: string;
+  breed: string;
+  price: string;
+  address: string;
+  age: string;
+  weight?: string;
+  image_urls: string[];
+  health_status: string;
+}
+
 const ProfileScreen = () => {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState<string | null>(null);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const userId = route.params?.PROFILE?.id;
@@ -42,30 +54,59 @@ const ProfileScreen = () => {
     getCurrentUser();
   }, [userId]);
 
-  // Listen for profile updates ONLY when screen is focused
+  // Listen for profile updates when screen is focused
   useFocusEffect(
     React.useCallback(() => {
-      const checkForUpdates = async () => {
-        try {
-          const updateFlag = await AsyncStorage.getItem('profile_updated');
-          
-          // Only fetch if flag exists AND it's different from last check
-          if (updateFlag && updateFlag !== lastUpdateTimestamp) {
-            console.log('Profile update detected, refreshing...');
-            setLastUpdateTimestamp(updateFlag);
-            await fetchProfile();
-            // Clear the flag after reading
-            await AsyncStorage.removeItem('profile_updated');
-          }
-        } catch (error) {
-          console.error('Error checking for updates:', error);
-        }
-      };
-
-      // Check once when screen focuses
-      checkForUpdates();
-    }, [lastUpdateTimestamp, userId])
+      // Refresh profile when screen focuses
+      if (userId) fetchProfile();
+    }, [userId])
   );
+
+  // Listen for profile updates via event
+  useEffect(() => {
+    const unsubscribe = appEvents.on(EVENTS.PROFILE_UPDATED, () => {
+      console.log('ProfileScreen: Profile updated event received');
+      if (userId) fetchProfile();
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  // Listen for listing updates
+  useEffect(() => {
+    const unsubscribeUpdate = appEvents.on(EVENTS.LISTING_UPDATED, (updatedListing: Product) => {
+      console.log('ProfileScreen: Listing updated event received', updatedListing?.id);
+      if (profile?.products) {
+        setProfile((prev: any) => ({
+          ...prev,
+          products: prev.products.map((p: Product) => 
+            p.id === updatedListing.id ? { ...p, ...updatedListing } : p
+          )
+        }));
+      }
+    });
+
+    const unsubscribeDelete = appEvents.on(EVENTS.LISTING_DELETED, (deletedId: number) => {
+      console.log('ProfileScreen: Listing deleted event received', deletedId);
+      if (profile?.products) {
+        setProfile((prev: any) => ({
+          ...prev,
+          products: prev.products.filter((p: Product) => p.id !== deletedId)
+        }));
+      }
+    });
+
+    const unsubscribeCreate = appEvents.on(EVENTS.LISTING_CREATED, () => {
+      console.log('ProfileScreen: Listing created event received');
+      if (userId) fetchProfile();
+    });
+
+    return () => {
+      unsubscribeUpdate();
+      unsubscribeDelete();
+      unsubscribeCreate();
+    };
+  }, [profile, userId]);
 
   const getCurrentUser = async () => {
     try {
@@ -130,14 +171,16 @@ const ProfileScreen = () => {
                 }
               );
 
+              // Emit delete event for instant update across all screens
+              appEvents.emit(EVENTS.LISTING_DELETED, listingId);
+              console.log('ProfileScreen: Emitted listing deleted event', listingId);
+
               Toast.show({
                 type: 'success',
                 text1: 'Deleted! 🗑️',
                 text2: 'Listing deleted successfully',
                 position: 'top',
               });
-              
-              fetchProfile();
             } catch (error: any) {
               console.error("Error deleting listing:", error);
               Toast.show({
@@ -411,7 +454,7 @@ const ProfileScreen = () => {
             </View>
           ) : (
             <View style={styles.productsGrid}>
-              {products.map((product) => (
+              {products.map((product: Product) => (
                 <ProductCard
                   key={product.id}
                   product={product}
