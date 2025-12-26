@@ -192,7 +192,7 @@ function BottomTabs() {
               iconName = focused ? 'list' : 'list-outline';
               break;
             case 'Reels':
-              iconName = focused ? 'videocam' : 'videocam-outline';
+              iconName = focused ? 'play-circle-outline' : 'play-circle-outline';
               break;
           }
           return <Ionicons name={iconName} size={24} color={color} />;
