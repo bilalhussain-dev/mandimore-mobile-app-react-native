@@ -19,8 +19,9 @@ import { Ionicons } from "@react-native-vector-icons/ionicons";
 import Video from 'react-native-video';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurView } from '@react-native-community/blur';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 
 const { width, height } = Dimensions.get('window');
 
@@ -31,38 +32,38 @@ const VIDEO_HEIGHT = height;
 const THEME_COLOR = '#f1641e';
 const THEME_COLOR_LIGHT = 'rgba(241, 100, 30, 0.3)';
 
-// Hardcoded video URL for all reels (as requested)
-const HARDCODED_VIDEO_URL = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+// API Base URL
+const API_BASE_URL = 'https://mandimore.com/v1';
 
 // Default avatar placeholder
 const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?background=f1641e&color=fff&name=';
 
-// API Configuration
-const API_BASE_URL = 'https://mandimore.com/v1';
-
-interface User {
+interface ReelOwner {
   id: number;
-  email: string;
-  first_name: string;
-  last_name: string;
-  username: string;
-  avatar_url: string | null;
-  verified: boolean;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  avatar_url?: string | null;
+  verified?: boolean;
 }
 
 interface Reel {
   id: number;
   title: string;
   description: string;
-  contact: string;
-  category_id: number;
-  created_at: string;
-  user: User;
-  hls_master?: string;
-  isLiked?: boolean;
-  likes?: number;
-  comments?: number;
-  shares?: number;
+  hls_url: string;
+  isLiked: boolean;
+  likes: string;
+  comments: string;
+  shares: string;
+  reel_owner: ReelOwner | null;
+}
+
+interface ApiResponse {
+  code: number;
+  message: string;
+  data: Reel[];
 }
 
 interface ReelItemProps {
@@ -72,8 +73,6 @@ interface ReelItemProps {
   onComment: (id: number) => void;
   onShare: (item: Reel) => void;
   onUserPress: (userId: number) => void;
-  onCallPress: (contact: string) => void;
-  onWhatsAppPress: (contact: string, title: string) => void;
 }
 
 // Glassmorphism CTA Button Component - Compact Pill Style
@@ -142,13 +141,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
   onComment,
   onShare,
   onUserPress,
-  onCallPress,
-  onWhatsAppPress,
 }) => {
   const [paused, setPaused] = useState(!isActive);
   const [loading, setLoading] = useState(true);
   const [liked, setLiked] = useState(item.isLiked || false);
-  const [likesCount, setLikesCount] = useState(item.likes || 0);
+  const [likesCount, setLikesCount] = useState(item.likes);
   const [showPlayIcon, setShowPlayIcon] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -165,6 +162,12 @@ const ReelItem: React.FC<ReelItemProps> = ({
       setIsDescriptionExpanded(false);
     }
   }, [isActive]);
+
+  // Update liked state when item changes
+  useEffect(() => {
+    setLiked(item.isLiked || false);
+    setLikesCount(item.likes);
+  }, [item.isLiked, item.likes]);
 
   const handleVideoPress = useCallback(() => {
     const now = Date.now();
@@ -202,7 +205,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const handleDoubleTapLike = useCallback(() => {
     if (!liked) {
       setLiked(true);
-      setLikesCount(prev => prev + 1);
+      // Increment like count (handle string format)
+      setLikesCount(prev => incrementCount(prev));
       onLike(item.id);
     }
 
@@ -237,9 +241,40 @@ const ReelItem: React.FC<ReelItemProps> = ({
     ]).start();
   }, [liked, item.id, onLike]);
 
+  // Helper function to parse and increment count strings like "10k", "1M"
+  const parseCount = (countStr: string): number => {
+    const str = countStr.toLowerCase().trim();
+    if (str.endsWith('m')) {
+      return parseFloat(str) * 1000000;
+    } else if (str.endsWith('k')) {
+      return parseFloat(str) * 1000;
+    }
+    return parseInt(str) || 0;
+  };
+
+  const formatCount = (count: number): string => {
+    if (count >= 1000000) {
+      return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    } else if (count >= 1000) {
+      return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    }
+    return count.toString();
+  };
+
+  const incrementCount = (countStr: string): string => {
+    const count = parseCount(countStr);
+    return formatCount(count + 1);
+  };
+
+  const decrementCount = (countStr: string): string => {
+    const count = parseCount(countStr);
+    return formatCount(Math.max(0, count - 1));
+  };
+
   const handleLikePress = useCallback(() => {
+    const wasLiked = liked;
     setLiked(prev => !prev);
-    setLikesCount(prev => liked ? prev - 1 : prev + 1);
+    setLikesCount(prev => wasLiked ? decrementCount(prev) : incrementCount(prev));
     onLike(item.id);
 
     Animated.sequence([
@@ -264,26 +299,41 @@ const ReelItem: React.FC<ReelItemProps> = ({
     setIsDescriptionExpanded(prev => !prev);
   }, []);
 
-  const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return (count / 1000000).toFixed(1) + 'M';
-    } else if (count >= 1000) {
-      return (count / 1000).toFixed(1) + 'K';
-    }
-    return count.toString();
-  };
-
   const getUserDisplayName = () => {
-    if (item.user.username) return item.user.username;
-    return `${item.user.first_name}${item.user.last_name ? '_' + item.user.last_name : ''}`;
+    if (item.reel_owner) {
+      if (item.reel_owner.username) return item.reel_owner.username;
+      return `${item.reel_owner.first_name || 'User'}${item.reel_owner.last_name ? '_' + item.reel_owner.last_name : ''}`;
+    }
+    return 'mandimore';
   };
 
   const getAvatarUrl = () => {
-    if (item.user.avatar_url) return item.user.avatar_url;
-    return `${DEFAULT_AVATAR}${item.user.first_name}+${item.user.last_name || ''}`;
+    if (item.reel_owner?.avatar_url) return item.reel_owner.avatar_url;
+    const name = item.reel_owner 
+      ? `${item.reel_owner.first_name || 'M'}+${item.reel_owner.last_name || ''}` 
+      : 'Mandimore';
+    return `${DEFAULT_AVATAR}${name}`;
   };
 
-  const videoUrl = HARDCODED_VIDEO_URL;
+  const isVerified = item.reel_owner?.verified || false;
+
+  const handleCallPress = useCallback(() => {
+    const phoneNumber = 'tel:+923001234567';
+    Linking.openURL(phoneNumber).catch(err => {
+      console.error('Error opening phone:', err);
+    });
+  }, []);
+
+  const handleWhatsAppPress = useCallback(() => {
+    const phoneNumber = '+923001234567';
+    const message = encodeURIComponent(`Hi! I'm interested in "${item.title}" I saw on Mandimore.`);
+    const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${message}`;
+
+    Linking.openURL(whatsappUrl).catch(err => {
+      console.error('Error opening WhatsApp:', err);
+      Linking.openURL(`https://wa.me/${phoneNumber}?text=${message}`);
+    });
+  }, [item.title]);
 
   return (
     <View style={styles.reelContainer}>
@@ -292,9 +342,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
         style={styles.videoContainer}
         onPress={handleVideoPress}
       >
+        
         <Video
           ref={videoRef}
-          source={{ uri: videoUrl }}
+          source={{ uri: item.hls_url }}
           style={styles.video}
           resizeMode="cover"
           repeat
@@ -366,7 +417,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
         {/* User Avatar */}
         <TouchableOpacity
           style={styles.avatarButton}
-          onPress={() => onUserPress(item.user.id)}
+          onPress={() => item.reel_owner && onUserPress(item.reel_owner.id)}
+          disabled={!item.reel_owner}
         >
           <View style={styles.avatarWrapper}>
             <Image
@@ -399,7 +451,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
               color={liked ? '#ff4757' : '#fff'}
             />
           </Animated.View>
-          <Text style={styles.actionText}>{formatCount(likesCount)}</Text>
+          <Text style={styles.actionText}>{likesCount}</Text>
         </TouchableOpacity>
 
         {/* Comment Button */}
@@ -408,7 +460,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
           onPress={() => onComment(item.id)}
         >
           <Ionicons name="chatbubble-ellipses-outline" size={30} color="#fff" />
-          <Text style={styles.actionText}>{formatCount(item.comments || 0)}</Text>
+          <Text style={styles.actionText}>{item.comments}</Text>
         </TouchableOpacity>
 
         {/* Share Button */}
@@ -417,7 +469,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
           onPress={() => onShare(item)}
         >
           <Ionicons name="paper-plane-outline" size={28} color="#fff" />
-          <Text style={styles.actionText}>{formatCount(item.shares || 0)}</Text>
+          <Text style={styles.actionText}>{item.shares}</Text>
         </TouchableOpacity>
       </View>
 
@@ -426,10 +478,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
         {/* User Info */}
         <TouchableOpacity
           style={styles.userInfo}
-          onPress={() => onUserPress(item.user.id)}
+          onPress={() => item.reel_owner && onUserPress(item.reel_owner.id)}
+          disabled={!item.reel_owner}
         >
           <Text style={styles.userName}>@{getUserDisplayName()}</Text>
-          {item.user.verified && (
+          {isVerified && (
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark-circle" size={16} color={THEME_COLOR} />
             </View>
@@ -444,44 +497,38 @@ const ReelItem: React.FC<ReelItemProps> = ({
         )}
 
         {/* Description - Expandable */}
-        <TouchableOpacity onPress={toggleDescription} activeOpacity={0.8}>
-          <View style={[
-            styles.descriptionContainer,
-            isDescriptionExpanded && styles.descriptionContainerExpanded
-          ]}>
-            <Text
-              style={styles.description}
-              numberOfLines={isDescriptionExpanded ? undefined : 2}
-            >
-              {item.description}
-            </Text>
-            {!isDescriptionExpanded && item.description && item.description.length > 80 && (
-              <Text style={styles.seeMoreText}>... more</Text>
-            )}
-            {isDescriptionExpanded && (
-              <Text style={styles.seeLessText}>Show less</Text>
-            )}
-          </View>
-        </TouchableOpacity>
-
-        {/* Location Tag */}
-        {item.contact && (
-          <View style={styles.locationContainer}>
-            <Ionicons name="location" size={14} color={THEME_COLOR} />
-            <Text style={styles.locationText}>{item.contact}</Text>
-          </View>
+        {item.description && (
+          <TouchableOpacity onPress={toggleDescription} activeOpacity={0.8}>
+            <View style={[
+              styles.descriptionContainer,
+              isDescriptionExpanded && styles.descriptionContainerExpanded
+            ]}>
+              <Text
+                style={styles.description}
+                numberOfLines={isDescriptionExpanded ? undefined : 2}
+              >
+                {item.description}
+              </Text>
+              {!isDescriptionExpanded && item.description && item.description.length > 80 && (
+                <Text style={styles.seeMoreText}>... more</Text>
+              )}
+              {isDescriptionExpanded && (
+                <Text style={styles.seeLessText}>Show less</Text>
+              )}
+            </View>
+          </TouchableOpacity>
         )}
 
         {/* Glassmorphism CTA Buttons */}
         <View style={styles.ctaContainer}>
           <GlassCTAButton
-            onPress={() => onCallPress(item.contact)}
+            onPress={handleCallPress}
             icon="call"
             label="Call Now"
             variant="call"
           />
           <GlassCTAButton
-            onPress={() => onWhatsAppPress(item.contact, item.title)}
+            onPress={handleWhatsAppPress}
             icon="logo-whatsapp"
             label="WhatsApp"
             variant="whatsapp"
@@ -511,39 +558,42 @@ const ReelsScreen: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
-  const fetchReels = useCallback(async () => {
+  // Fetch reels from API
+  const fetchReels = useCallback(async (isRefresh = false) => {
     try {
-      const token = await AsyncStorage.getItem("authToken");
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
+
+      const token = await AsyncStorage.getItem("authToken");
       const response = await fetch(`${API_BASE_URL}/reels`, {
+        method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
-          Accept: "application/json",
+            Accept: "application/json",
         },
       });
-      const result = await response.json();
+
+      const result: ApiResponse = await response.json();
 
       if (result.code === 200 && result.data) {
-        const reelsWithDefaults = result.data.map((reel: Reel) => ({
-          ...reel,
-          isLiked: false,
-          likes: Math.floor(Math.random() * 5000) + 100,
-          comments: Math.floor(Math.random() * 500) + 10,
-          shares: Math.floor(Math.random() * 200) + 5,
-        }));
-        setReels(reelsWithDefaults);
+        setReels(result.data);
       } else {
         setError(result.message || 'Failed to fetch reels');
       }
     } catch (err) {
       console.error('Error fetching reels:', err);
-      setError('Failed to load reels. Please check your connection.');
+      setError('Unable to load reels. Please check your connection.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
+  // Initial fetch on mount
   useEffect(() => {
     fetchReels();
   }, [fetchReels]);
@@ -557,8 +607,7 @@ const ReelsScreen: React.FC = () => {
   );
 
   const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchReels();
+    fetchReels(true);
   }, [fetchReels]);
 
   const handleBackPress = () => {
@@ -602,24 +651,6 @@ const ReelsScreen: React.FC = () => {
     console.log('Navigate to user:', userId);
   }, []);
 
-  const handleCallPress = useCallback((contact: string) => {
-    const phoneNumber = 'tel:+923001234567';
-    Linking.openURL(phoneNumber).catch(err => {
-      console.error('Error opening phone:', err);
-    });
-  }, []);
-
-  const handleWhatsAppPress = useCallback((contact: string, title: string) => {
-    const phoneNumber = '+923001234567';
-    const message = encodeURIComponent(`Hi! I'm interested in "${title}" I saw on Mandimore.`);
-    const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${message}`;
-
-    Linking.openURL(whatsappUrl).catch(err => {
-      console.error('Error opening WhatsApp:', err);
-      Linking.openURL(`https://wa.me/${phoneNumber}?text=${message}`);
-    });
-  }, []);
-
   const renderItem = useCallback(
     ({ item, index }: { item: Reel; index: number }) => (
       <ReelItem
@@ -629,11 +660,9 @@ const ReelsScreen: React.FC = () => {
         onComment={handleComment}
         onShare={handleShare}
         onUserPress={handleUserPress}
-        onCallPress={handleCallPress}
-        onWhatsAppPress={handleWhatsAppPress}
       />
     ),
-    [activeIndex, handleLike, handleComment, handleShare, handleUserPress, handleCallPress, handleWhatsAppPress]
+    [activeIndex, handleLike, handleComment, handleShare, handleUserPress]
   );
 
   const getItemLayout = useCallback(
@@ -659,16 +688,16 @@ const ReelsScreen: React.FC = () => {
     );
   }
 
-  if (error && reels.length === 0) {
+  if (error) {
     return (
-      <View style={styles.errorContainer}>
+      <View style={styles.emptyContainer}>
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-        <View style={styles.errorIconWrapper}>
-          <Ionicons name="cloud-offline-outline" size={60} color={THEME_COLOR} />
+        <View style={styles.emptyIconWrapper}>
+          <Ionicons name="cloud-offline-outline" size={70} color="#444" />
         </View>
-        <Text style={styles.errorTitle}>Oops!</Text>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchReels}>
+        <Text style={styles.emptyTitle}>Oops!</Text>
+        <Text style={styles.emptyText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => fetchReels()}>
           <LinearGradient
             colors={[THEME_COLOR, '#ff8c42']}
             start={{ x: 0, y: 0 }}
@@ -692,7 +721,7 @@ const ReelsScreen: React.FC = () => {
         </View>
         <Text style={styles.emptyTitle}>No Reels Yet</Text>
         <Text style={styles.emptyText}>Check back later for new content!</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchReels}>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
           <LinearGradient
             colors={[THEME_COLOR, '#ff8c42']}
             start={{ x: 0, y: 0 }}
@@ -795,35 +824,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     opacity: 0.8,
   },
-  errorContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  errorIconWrapper: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(241, 100, 30, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  errorTitle: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  errorText: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 22,
-  },
   emptyContainer: {
     flex: 1,
     backgroundColor: '#000',
@@ -850,6 +850,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.5)',
     fontSize: 15,
     marginBottom: 30,
+    textAlign: 'center',
   },
   retryButton: {
     borderRadius: 25,
@@ -972,7 +973,7 @@ const styles = StyleSheet.create({
   actionsContainer: {
     position: 'absolute',
     right: 12,
-    bottom: 200,
+    bottom: 10,
     alignItems: 'center',
   },
   avatarButton: {

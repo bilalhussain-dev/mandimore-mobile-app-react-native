@@ -231,12 +231,103 @@ function BottomTabs() {
 
 // --- App with Stack + Tabs ---
 function App() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const currentUser = await AsyncStorage.getItem('current_user');
+
+      if (token && currentUser) {
+        // Validate token with the server
+        const isValid = await validateToken(token);
+        
+        if (isValid) {
+          setIsAuthenticated(true);
+        } else {
+          // Token is invalid/expired - clear stored data
+          await clearAuthData();
+          setIsAuthenticated(false);
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const validateToken = async (token: string): Promise<boolean> => {
+    try {
+      // Make a lightweight API call to verify the token is still valid
+      const response = await axios.get('https://mandimore.com/v1/user', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+
+      // If we get a successful response, token is valid
+      if (response.status === 200 && response.data) {
+        // Optionally update the stored user data with fresh data
+        if (response.data.data) {
+          await AsyncStorage.setItem('current_user', JSON.stringify(response.data.data));
+        }
+        return true;
+      }
+      return false;
+    } catch (error: any) {
+      // Handle specific error cases
+      if (error.response) {
+        const status = error.response.status;
+        // 401 Unauthorized or 403 Forbidden means token is invalid/expired
+        if (status === 401 || status === 403) {
+          console.log('Token expired or invalid');
+          return false;
+        }
+      }
+      // For network errors, assume token might still be valid
+      // This prevents logout during temporary network issues
+      console.log('Network error during token validation, assuming valid');
+      return true;
+    }
+  };
+
+  const clearAuthData = async () => {
+    try {
+      await AsyncStorage.multiRemove(['authToken', 'current_user']);
+    } catch (error) {
+      console.error('Error clearing auth data:', error);
+    }
+  };
+
+  // Show splash/loading screen while checking auth
+  if (isLoading) {
+    return (
+      <SafeAreaProvider>
+        <View style={styles.splashContainer}>
+          <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+          <ActivityIndicator size="large" color="#f1641e" />
+          <Text style={styles.splashText}>Loading...</Text>
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <NavigationContainer>
         <StatusBar barStyle="dark-content" backgroundColor="#fff" />
         <Stack.Navigator
-          initialRouteName="Login"
+          initialRouteName={isAuthenticated ? "Tabs" : "Login"}
           screenOptions={{ headerShown: false }}
         >
           <Stack.Screen name="Login" component={LoginScreen} />
@@ -258,6 +349,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
+  },
+  splashContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  splashText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
   },
   iconContainer: {
     position: 'relative',
