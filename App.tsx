@@ -244,60 +244,49 @@ function App() {
       const currentUser = await AsyncStorage.getItem('current_user');
 
       if (token && currentUser) {
-        // Validate token with the server
-        const isValid = await validateToken(token);
+        // OPTIMISTIC: Show app immediately if we have stored credentials
+        setIsAuthenticated(true);
+        setIsLoading(false);
         
-        if (isValid) {
-          setIsAuthenticated(true);
-        } else {
-          // Token is invalid/expired - clear stored data
-          await clearAuthData();
-          setIsAuthenticated(false);
-        }
+        // Validate token in the background
+        validateTokenInBackground(token);
       } else {
         setIsAuthenticated(false);
+        setIsLoading(false);
       }
     } catch (error) {
       console.error('Error checking auth status:', error);
       setIsAuthenticated(false);
-    } finally {
       setIsLoading(false);
     }
   };
 
-  const validateToken = async (token: string): Promise<boolean> => {
+  const validateTokenInBackground = async (token: string) => {
     try {
-      // Make a lightweight API call to verify the token is still valid
       const response = await axios.get('https://mandimore.com/v1/user', {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
+        timeout: 10000, // 10 second timeout
       });
 
-      // If we get a successful response, token is valid
-      if (response.status === 200 && response.data) {
-        // Optionally update the stored user data with fresh data
-        if (response.data.data) {
-          await AsyncStorage.setItem('current_user', JSON.stringify(response.data.data));
-        }
-        return true;
+      // Update stored user data with fresh data
+      if (response.status === 200 && response.data?.data) {
+        await AsyncStorage.setItem('current_user', JSON.stringify(response.data.data));
+        appEvents.emit(EVENTS.PROFILE_UPDATED);
       }
-      return false;
     } catch (error: any) {
-      // Handle specific error cases
       if (error.response) {
         const status = error.response.status;
         // 401 Unauthorized or 403 Forbidden means token is invalid/expired
         if (status === 401 || status === 403) {
-          console.log('Token expired or invalid');
-          return false;
+          console.log('Token expired or invalid - logging out');
+          await clearAuthData();
+          setIsAuthenticated(false);
         }
       }
-      // For network errors, assume token might still be valid
-      // This prevents logout during temporary network issues
-      console.log('Network error during token validation, assuming valid');
-      return true;
+      // For network errors, keep user logged in (already showing app)
     }
   };
 
@@ -309,14 +298,13 @@ function App() {
     }
   };
 
-  // Show splash/loading screen while checking auth
+  // Show splash/loading screen only briefly while reading AsyncStorage
   if (isLoading) {
     return (
       <SafeAreaProvider>
         <View style={styles.splashContainer}>
           <StatusBar barStyle="dark-content" backgroundColor="#fff" />
           <ActivityIndicator size="large" color="#f1641e" />
-          <Text style={styles.splashText}>Loading...</Text>
         </View>
       </SafeAreaProvider>
     );
