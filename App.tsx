@@ -22,6 +22,7 @@ import FavoritesScreen from './src/screens/FavoritesScreen';
 import CreateListing from './src/screens/CreateListing';
 import SignupScreen from './src/screens/SignupScreen';
 import ReelsScreen from './src/screens/ReelsScreen';
+import CreateReel from './src/screens/CreateReel';
 
 // Define types
 export type RootStackParamList = {
@@ -32,6 +33,8 @@ export type RootStackParamList = {
   ListingDetail: { id?: number };
   Category: undefined;
   Categories: undefined;
+  CreateReel: undefined
+
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -325,6 +328,8 @@ function App() {
           <Stack.Screen name="Category" component={Category} />
           <Stack.Screen name="Categories" component={CategoriesScreen} />
           <Stack.Screen name="CreateListing" component={CreateListing} />
+          <Stack.Screen name="CreateReel" component={CreateReel} />
+
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Dimensions,
   StatusBar,
   Alert,
+  Animated,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -19,6 +21,7 @@ import axios from 'axios';
 import CreateOrEditProductModal from '../components/createOrEditProductModal';
 import AiSearchModal from '../components/AiSearchModal';
 import appEvents, { EVENTS } from '../utils/EventEmitter';
+import CreateReel from './CreateReel';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
@@ -115,6 +118,13 @@ const HomeScreen: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
   const [loadingFavorites, setLoadingFavorites] = useState<{[key: number]: boolean}>({});
+  
+  // FAB Menu State
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
+  const fabRotation = useRef(new Animated.Value(0)).current;
+  const menuScale = useRef(new Animated.Value(0)).current;
+  const menuOpacity = useRef(new Animated.Value(0)).current;
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     fetchUserData();
@@ -129,6 +139,10 @@ const HomeScreen: React.FC = () => {
       // Refresh user data when screen focuses
       fetchUserData();
       fetchUserFavorites();
+      // Close FAB menu when screen loses focus
+      return () => {
+        closeFabMenu();
+      };
     }, [])
   );
 
@@ -166,6 +180,88 @@ const HomeScreen: React.FC = () => {
       unsubscribeCreate();
     };
   }, []);
+
+  // FAB Menu Animation Functions
+  const openFabMenu = useCallback(() => {
+    setFabMenuOpen(true);
+    Animated.parallel([
+      Animated.spring(fabRotation, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 10,
+      }),
+      Animated.spring(menuScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 10,
+      }),
+      Animated.timing(menuOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(overlayOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const closeFabMenu = useCallback(() => {
+    Animated.parallel([
+      Animated.spring(fabRotation, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 10,
+      }),
+      Animated.spring(menuScale, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 10,
+      }),
+      Animated.timing(menuOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setFabMenuOpen(false);
+    });
+  }, []);
+
+  const toggleFabMenu = useCallback(() => {
+    if (fabMenuOpen) {
+      closeFabMenu();
+    } else {
+      openFabMenu();
+    }
+  }, [fabMenuOpen, openFabMenu, closeFabMenu]);
+
+  const handleUploadCritter = useCallback(() => {
+    closeFabMenu();
+    // Small delay to let menu close animation complete
+    setTimeout(() => {
+      navigation.navigate('CreateReel');
+    }, 150);
+  }, [navigation, closeFabMenu]);
+
+  const handleUploadListing = useCallback(() => {
+    closeFabMenu();
+    // Small delay to let menu close animation complete
+    setTimeout(() => {
+      setModalVisible(true);
+    }, 150);
+  }, [closeFabMenu]);
 
   const fetchUserData = async () => {
     try {
@@ -362,10 +458,6 @@ const HomeScreen: React.FC = () => {
   const handleProductPress = useCallback((product: Product) => {
     navigation.navigate('ListingDetail', { LISTING_DETAIL: product });
   }, [navigation]);
-
-  const handleOpenModal = useCallback(() => {
-    setModalVisible(true);
-  }, []);
 
   const handleCloseModal = useCallback(() => {
     setModalVisible(false);
@@ -627,6 +719,12 @@ const HomeScreen: React.FC = () => {
     );
   };
 
+  // FAB rotation interpolation
+  const fabRotate = fabRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '45deg'],
+  });
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -662,13 +760,70 @@ const HomeScreen: React.FC = () => {
         onEndReachedThreshold={0.5}
       />
 
-      {/* Smaller Floating Button */}
+      {/* FAB Menu Overlay */}
+      {fabMenuOpen && (
+        <TouchableWithoutFeedback onPress={closeFabMenu}>
+          <Animated.View 
+            style={[
+              styles.fabOverlay,
+              { opacity: overlayOpacity }
+            ]}
+          />
+        </TouchableWithoutFeedback>
+      )}
+
+      {/* FAB Menu Options */}
+      {fabMenuOpen && (
+        <Animated.View 
+          style={[
+            styles.fabMenuContainer,
+            {
+              opacity: menuOpacity,
+              transform: [{ scale: menuScale }],
+            }
+          ]}
+        >
+          {/* Upload Critter (Reel) Option */}
+          <TouchableOpacity 
+            style={styles.fabMenuItem}
+            onPress={handleUploadCritter}
+            activeOpacity={0.8}
+          >
+            <View style={styles.fabMenuIconContainer}>
+              <Ionicons name="videocam" size={22} color="#fff" />
+            </View>
+            <View style={styles.fabMenuLabelContainer}>
+              <Text style={styles.fabMenuLabel}>Upload Critter</Text>
+              <Text style={styles.fabMenuSubLabel}>Share a video reel</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Upload Listing Option */}
+          <TouchableOpacity 
+            style={styles.fabMenuItem}
+            onPress={handleUploadListing}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.fabMenuIconContainer, { backgroundColor: '#4CAF50' }]}>
+              <Ionicons name="pricetag" size={22} color="#fff" />
+            </View>
+            <View style={styles.fabMenuLabelContainer}>
+              <Text style={styles.fabMenuLabel}>Upload Listing</Text>
+              <Text style={styles.fabMenuSubLabel}>Sell a pet or item</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      {/* Main Floating Action Button */}
       <TouchableOpacity
-        onPress={handleOpenModal}
-        style={styles.floatingButton}
+        onPress={toggleFabMenu}
+        style={[styles.floatingButton, fabMenuOpen && styles.floatingButtonActive]}
         activeOpacity={0.8}
       >
-        <Ionicons name="add" size={24} color="#fff" />
+        <Animated.View style={{ transform: [{ rotate: fabRotate }] }}>
+          <Ionicons name="add" size={28} color="#fff" />
+        </Animated.View>
       </TouchableOpacity>
 
       {/* AI Search Modal with Category Selection */}
@@ -1106,14 +1261,73 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Smaller Floating Button
+  // FAB Overlay
+  fabOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 998,
+  },
+
+  // FAB Menu Container
+  fabMenuContainer: {
+    position: 'absolute',
+    bottom: 100,
+    right: 20,
+    zIndex: 999,
+  },
+
+  // FAB Menu Item
+  fabMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    minWidth: 200,
+  },
+
+  fabMenuIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f1641e',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+
+  fabMenuLabelContainer: {
+    flex: 1,
+  },
+
+  fabMenuLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 2,
+  },
+
+  fabMenuSubLabel: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '500',
+  },
+
+  // Floating Button
   floatingButton: {
     position: 'absolute',
     bottom: 24,
     right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#f1641e',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1122,5 +1336,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
+    zIndex: 1000,
+  },
+  floatingButtonActive: {
+    backgroundColor: '#d15518',
   },
 });
