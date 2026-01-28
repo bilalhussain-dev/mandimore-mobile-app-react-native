@@ -19,8 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Geolocation from 'react-native-geolocation-service';
 import axios from 'axios';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 48) / 2;
+const { width, height } = Dimensions.get('window');
 const THEME_COLOR = '#f1641e';
 
 interface NearbyProduct {
@@ -68,22 +67,36 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<string>('unknown');
 
+  // Configure geolocation on mount
+//   useEffect(() => {
+//     Geolocation.setRNConfiguration({
+//       skipPermissionRequests: false,
+//       authorizationLevel: 'whenInUse',
+//       locationProvider: 'auto',
+//     });
+//   }, []);
+
   // Request location permission for Android
   const requestAndroidPermission = async (): Promise<boolean> => {
     try {
+      // Check if already granted
       const fineLocationGranted = await PermissionsAndroid.check(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
       );
       
       if (fineLocationGranted) {
+        console.log('Location permission already granted');
         setPermissionStatus('granted');
         return true;
       }
 
+      // Request both permissions
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
       ]);
+
+      console.log('Permission results:', granted);
 
       const fineLocation = granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
       const coarseLocation = granted[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION];
@@ -92,6 +105,7 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
         fineLocation === PermissionsAndroid.RESULTS.GRANTED ||
         coarseLocation === PermissionsAndroid.RESULTS.GRANTED
       ) {
+        console.log('Location permission granted');
         setPermissionStatus('granted');
         return true;
       } else if (
@@ -111,15 +125,20 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
     }
   };
 
+  // Request location permission
   const requestLocationPermission = async (): Promise<boolean> => {
     if (Platform.OS === 'ios') {
-      const status = await Geolocation.requestAuthorization('whenInUse');
-      return status === 'granted';
+      return new Promise((resolve) => {
+        Geolocation.requestAuthorization();
+        // Give iOS time to process
+        setTimeout(() => resolve(true), 500);
+      });
     } else {
       return await requestAndroidPermission();
     }
   };
 
+  // Open device settings
   const openSettings = () => {
     if (Platform.OS === 'ios') {
       Linking.openURL('app-settings:');
@@ -132,9 +151,11 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
     setLocationError(null);
     setError(null);
     
+    console.log('Requesting location permission...');
     const hasPermission = await requestLocationPermission();
     
     if (!hasPermission) {
+      console.log('Permission denied, status:', permissionStatus);
       if (permissionStatus === 'never_ask_again') {
         setLocationError('Location permission permanently denied. Please enable it in Settings.');
       } else {
@@ -143,9 +164,12 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
       return null;
     }
 
+    console.log('Permission granted, getting location...');
+
     return new Promise<{ lat: number; lng: number } | null>((resolve) => {
       Geolocation.getCurrentPosition(
         (position) => {
+          console.log('Location received:', position.coords);
           const location = {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
@@ -155,17 +179,19 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
           resolve(location);
         },
         (geoError) => {
+          console.error('Geolocation error:', geoError.code, geoError.message);
+          
           let errorMessage = 'Unable to get your location.';
           
           switch (geoError.code) {
-            case 1:
+            case 1: // PERMISSION_DENIED
               errorMessage = 'Location permission denied. Please enable location in Settings.';
               setPermissionStatus('denied');
               break;
-            case 2:
+            case 2: // POSITION_UNAVAILABLE
               errorMessage = 'Location unavailable. Please check if GPS/Location is enabled on your device.';
               break;
-            case 3:
+            case 3: // TIMEOUT
               errorMessage = 'Location request timed out. Please try again.';
               break;
             default:
@@ -176,9 +202,9 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
           resolve(null);
         },
         {
-          enableHighAccuracy: false,
-          timeout: 30000,
-          maximumAge: 300000,
+          enableHighAccuracy: false, // Set to false for faster response
+          timeout: 30000, // Increased timeout
+          maximumAge: 300000, // Accept cached location up to 5 minutes old
         }
       );
     });
@@ -203,9 +229,12 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
         }
       }
 
+      console.log('Fetching nearby products with location:', location, 'radius:', radius);
+
       const token = await AsyncStorage.getItem('authToken');
       
       const url = `https://mandimore.com/v1/nearby_products?lat=${location.lat}&lng=${location.lng}&radius=${radius}`;
+      console.log('API URL:', url);
 
       const response = await axios.get(url, {
         headers: {
@@ -213,6 +242,8 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
           Accept: 'application/json',
         },
       });
+
+      console.log('API Response code:', response.data?.code);
 
       if (response.data && response.data.code === 200) {
         setProducts(response.data.data || []);
@@ -228,13 +259,15 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
     }
   }, [userLocation, getCurrentLocation]);
 
+  // Fetch products when modal becomes visible
   useEffect(() => {
     if (visible) {
-      setUserLocation(null);
+      setUserLocation(null); // Reset to get fresh location
       fetchNearbyProducts(selectedRadius);
     }
   }, [visible]);
 
+  // Refetch when radius changes (only if we have location)
   const handleRadiusChange = (radius: number) => {
     setSelectedRadius(radius);
     if (userLocation) {
@@ -244,7 +277,7 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
 
   const handleRefresh = () => {
     setRefreshing(true);
-    setUserLocation(null);
+    setUserLocation(null); // Force re-fetch location
     fetchNearbyProducts(selectedRadius, true);
   };
 
@@ -261,9 +294,9 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
 
   const formatDistance = (distance: number) => {
     if (distance < 1) {
-      return `${Math.round(distance * 1000)} m`;
+      return `${Math.round(distance * 1000)} m away`;
     }
-    return `${distance.toFixed(1)} km`;
+    return `${distance.toFixed(1)} km away`;
   };
 
   const renderRadiusSelector = () => (
@@ -303,88 +336,65 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
 
     return (
       <TouchableOpacity
-        style={styles.card}
+        style={styles.productCard}
         activeOpacity={0.9}
         onPress={() => {
           onProductSelect(item);
           onClose();
         }}
       >
-        <View style={styles.imageContainer}>
-          <Image source={{ uri: imageUrl }} style={styles.image} />
-          
-          {/* Distance Badge */}
-          <View style={styles.distanceBadge}>
-            <Ionicons name="navigate" size={10} color="#fff" />
-            <Text style={styles.distanceBadgeText}>{formatDistance(item.distance)}</Text>
-          </View>
-
-          {hasImage && item.image_urls.length > 1 && (
-            <View style={styles.imageBadge}>
-              <Ionicons name="images-outline" size={12} color="#fff" />
-              <Text style={styles.imageBadgeText}>{item.image_urls.length}</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.cardContent}>
-          {/* User Info Row */}
-          <View style={styles.userRow}>
-            {item.user.user_avatar_url ? (
-              <Image source={{ uri: item.user.user_avatar_url }} style={styles.userAvatar} />
-            ) : (
-              <View style={styles.userAvatarPlaceholder}>
-                <Ionicons name="person" size={12} color="#999" />
-              </View>
-            )}
-            <Text style={styles.userNameText} numberOfLines={1}>
-              {item.user.first_name}
+        <Image source={{ uri: imageUrl }} style={styles.productImage} />
+        
+        <View style={styles.productContent}>
+          <View style={styles.productHeader}>
+            <Text style={styles.productTitle} numberOfLines={2}>
+              {item.title}
             </Text>
-            {item.user.verified && (
-              <Ionicons name="checkmark-circle" size={14} color={THEME_COLOR} />
-            )}
+            <View style={styles.distanceBadge}>
+              <Ionicons name="navigate" size={10} color={THEME_COLOR} />
+              <Text style={styles.distanceText}>{formatDistance(item.distance)}</Text>
+            </View>
           </View>
 
-          <Text style={styles.title} numberOfLines={2}>
-            {item.title}
-          </Text>
-
-          <View style={styles.breedContainer}>
+          <View style={styles.breedRow}>
             <View style={styles.breedBadge}>
-              <Text style={styles.breedText} numberOfLines={1}>
-                {item.breed}
-              </Text>
+              <Text style={styles.breedText}>{item.breed}</Text>
             </View>
-          </View>
-
-          <View style={styles.detailsRow}>
-            <View style={styles.detailItem}>
-              <Ionicons name="time-outline" size={12} color="#999" />
-              <Text style={styles.detailText}>{item.age || 'N/A'}</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="scale-outline" size={12} color="#999" />
-              <Text style={styles.detailText}>{item.weight || 'N/A'}</Text>
-            </View>
+            {item.age && (
+              <Text style={styles.ageText}>{item.age}</Text>
+            )}
           </View>
 
           {item.address && (
             <View style={styles.locationRow}>
               <Ionicons name="location-outline" size={12} color="#666" />
-              <Text style={styles.location} numberOfLines={1}>
+              <Text style={styles.addressText} numberOfLines={1}>
                 {item.address}
               </Text>
             </View>
           )}
 
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>{formatPrice(item.price)}</Text>
-            {item.health_status === 'excellent' && (
-              <View style={styles.healthBadge}>
-                <Ionicons name="shield-checkmark" size={10} color="#4CAF50" />
-                <Text style={styles.healthText}>Healthy</Text>
-              </View>
-            )}
+          <View style={styles.productFooter}>
+            <Text style={styles.priceText}>{formatPrice(item.price)}</Text>
+            
+            <View style={styles.sellerInfo}>
+              {item.user.user_avatar_url ? (
+                <Image
+                  source={{ uri: item.user.user_avatar_url }}
+                  style={styles.sellerAvatar}
+                />
+              ) : (
+                <View style={styles.sellerAvatarPlaceholder}>
+                  <Ionicons name="person" size={10} color="#999" />
+                </View>
+              )}
+              <Text style={styles.sellerName} numberOfLines={1}>
+                {item.user.first_name}
+              </Text>
+              {item.user.verified && (
+                <Ionicons name="checkmark-circle" size={12} color={THEME_COLOR} />
+              )}
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -480,8 +490,6 @@ const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
             data={products}
             keyExtractor={(item) => item.id.toString()}
             renderItem={renderProductItem}
-            numColumns={2}
-            columnWrapperStyle={styles.row}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={renderEmpty}
@@ -606,13 +614,8 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     flexGrow: 1,
   },
-  row: {
-    justifyContent: 'space-between',
-  },
-
-  // Card Styles (matching HomeScreen)
-  card: {
-    width: CARD_WIDTH,
+  productCard: {
+    flexDirection: 'row',
     backgroundColor: '#fff',
     borderRadius: 16,
     marginBottom: 12,
@@ -623,117 +626,61 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
   },
-  imageContainer: {
-    position: 'relative',
-  },
-  image: {
-    width: '100%',
+  productImage: {
+    width: 120,
     height: 140,
     backgroundColor: '#f0f0f0',
   },
-  distanceBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME_COLOR,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  distanceBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '700',
-    marginLeft: 3,
-  },
-  imageBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  imageBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  cardContent: {
+  productContent: {
+    flex: 1,
     padding: 12,
+    justifyContent: 'space-between',
   },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  productHeader: {
     marginBottom: 6,
   },
-  userAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginRight: 6,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  userAvatarPlaceholder: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 6,
-  },
-  userNameText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '500',
-    marginRight: 4,
-    flex: 1,
-  },
-  title: {
-    fontSize: 14,
+  productTitle: {
+    fontSize: 15,
     fontWeight: '700',
     color: '#333',
-    marginBottom: 6,
-    lineHeight: 18,
+    lineHeight: 20,
+    marginBottom: 4,
   },
-  breedContainer: {
-    marginBottom: 8,
-  },
-  breedBadge: {
+  distanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
     backgroundColor: '#fff5f0',
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  distanceText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: THEME_COLOR,
+    marginLeft: 3,
+  },
+  breedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  breedBadge: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#ffe0d1',
+    marginRight: 8,
   },
   breedText: {
     fontSize: 11,
     fontWeight: '600',
-    color: THEME_COLOR,
+    color: '#666',
   },
-  detailsRow: {
-    flexDirection: 'row',
-    marginBottom: 6,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  detailText: {
+  ageText: {
     fontSize: 11,
     color: '#999',
-    marginLeft: 3,
     fontWeight: '500',
   },
   locationRow: {
@@ -741,39 +688,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  location: {
+  addressText: {
     fontSize: 11,
     color: '#666',
-    marginLeft: 3,
+    marginLeft: 4,
     flex: 1,
   },
-  priceRow: {
+  productFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 4,
   },
-  price: {
-    fontSize: 15,
+  priceText: {
+    fontSize: 16,
     fontWeight: '700',
     color: THEME_COLOR,
   },
-  healthBadge: {
+  sellerInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f8f4',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
   },
-  healthText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#4CAF50',
-    marginLeft: 2,
+  sellerAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 5,
   },
-
-  // Empty & Error States
+  sellerAvatarPlaceholder: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 5,
+  },
+  sellerName: {
+    fontSize: 11,
+    color: '#666',
+    fontWeight: '500',
+    marginRight: 3,
+    maxWidth: 60,
+  },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',

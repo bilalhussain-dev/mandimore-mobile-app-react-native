@@ -20,8 +20,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import CreateOrEditProductModal from '../components/createOrEditProductModal';
 import AiSearchModal from '../components/AiSearchModal';
+import NearbyProductsModal from '../components/NearbyProductsModal';
 import appEvents, { EVENTS } from '../utils/EventEmitter';
-import CreateReel from './CreateReel';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 30) / 2;
@@ -107,6 +107,7 @@ const HomeScreen: React.FC = () => {
   const navigation = useNavigation();
   const [modalVisible, setModalVisible] = useState(false);
   const [aiSearchVisible, setAiSearchVisible] = useState(false);
+  const [nearbyModalVisible, setNearbyModalVisible] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -476,6 +477,18 @@ const HomeScreen: React.FC = () => {
     setAiSearchVisible(false);
   }, []);
 
+  const handleOpenNearbyModal = useCallback(() => {
+    setNearbyModalVisible(true);
+  }, []);
+
+  const handleCloseNearbyModal = useCallback(() => {
+    setNearbyModalVisible(false);
+  }, []);
+
+  const handleNearbyProductSelect = useCallback((product: any) => {
+    navigation.navigate('ListingDetail', { LISTING_DETAIL: product });
+  }, [navigation]);
+
   const handleAiProductSelect = useCallback((product: Product) => {
     navigation.navigate('ListingDetail', { LISTING_DETAIL: product });
   }, [navigation]);
@@ -509,7 +522,7 @@ const HomeScreen: React.FC = () => {
           </View>
         </View>
         
-        {/* Search and Notification Buttons */}
+        {/* Search and Location Buttons */}
         <View style={styles.headerActions}>
           <TouchableOpacity 
             style={styles.searchBtn}
@@ -518,9 +531,11 @@ const HomeScreen: React.FC = () => {
             <Ionicons name="search-outline" size={20} color="#fff" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.notificationBtn}>
-            <Ionicons name="notifications-outline" size={22} color="#fff" />
-            <View style={styles.notificationDot} />
+          <TouchableOpacity 
+            style={styles.locationBtn}
+            onPress={handleOpenNearbyModal}
+          >
+            <Ionicons name="location" size={22} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -834,6 +849,13 @@ const HomeScreen: React.FC = () => {
         onCategorySelect={handleAiCategorySelect}
       />
 
+      {/* Nearby Products Modal */}
+      <NearbyProductsModal
+        visible={nearbyModalVisible}
+        onClose={handleCloseNearbyModal}
+        onProductSelect={handleNearbyProductSelect}
+      />
+
       {/* Always Rendered Modal for Instant Opening */}
       <CreateOrEditProductModal
         visible={modalVisible}
@@ -941,7 +963,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 8,
   },
-  notificationBtn: {
+  locationBtn: {
     width: 42,
     height: 42,
     borderRadius: 21,
@@ -950,17 +972,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
     zIndex: 1,
-  },
-  notificationDot: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4CAF50',
-    borderWidth: 2,
-    borderColor: '#f1641e',
   },
 
   // Inline Stats Row
