@@ -1,12 +1,12 @@
 import React from 'react';
 import { StatusBar, View, Image, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, CommonActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import appEvents, { EVENTS } from './src/utils/EventEmitter';
 
@@ -33,8 +33,7 @@ export type RootStackParamList = {
   ListingDetail: { id?: number };
   Category: undefined;
   Categories: undefined;
-  CreateReel: undefined
-
+  CreateReel: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -46,6 +45,46 @@ interface UserData {
   last_name: string;
   avatar: string | null;
 }
+
+// ============================================
+// GLOBAL AXIOS INTERCEPTOR FOR AUTH HANDLING
+// ============================================
+const setupAxiosInterceptors = () => {
+  // Response interceptor to catch auth errors globally
+  axios.interceptors.response.use(
+    (response) => {
+      // Check for "Signature has expired" in response data
+      if (response.data?.error === 'Signature has expired') {
+        console.log('Axios Interceptor: Signature expired detected in response');
+        appEvents.emit(EVENTS.AUTH_LOGOUT);
+        return Promise.reject(new Error('Signature has expired'));
+      }
+      return response;
+    },
+    (error) => {
+      if (error.response) {
+        const status = error.response.status;
+        const errorMessage = error.response.data?.error || error.response.data?.message || '';
+
+        // Check for 401/403 status OR "Signature has expired" message
+        if (
+          status === 401 ||
+          status === 403 ||
+          errorMessage === 'Signature has expired' ||
+          errorMessage.toLowerCase().includes('expired') ||
+          errorMessage.toLowerCase().includes('unauthorized')
+        ) {
+          console.log('Axios Interceptor: Auth error detected, triggering logout');
+          appEvents.emit(EVENTS.AUTH_LOGOUT);
+        }
+      }
+      return Promise.reject(error);
+    }
+  );
+};
+
+// Setup interceptors immediately
+setupAxiosInterceptors();
 
 // Custom Profile Tab Icon with Avatar
 const ProfileTabIcon = ({ color, focused, avatar }: { color: string; focused: boolean; avatar: string | null }) => {
@@ -236,10 +275,46 @@ function BottomTabs() {
 function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const navigationRef = useRef<any>(null);
 
   useEffect(() => {
     checkAuthStatus();
   }, []);
+
+  // ============================================
+  // LISTEN FOR AUTH_LOGOUT EVENT - AUTO LOGOUT
+  // ============================================
+  useEffect(() => {
+    const unsubscribe = appEvents.on(EVENTS.AUTH_LOGOUT, async () => {
+      console.log('App: AUTH_LOGOUT event received - logging out...');
+      await handleLogout();
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      // Clear all auth data
+      await AsyncStorage.multiRemove(['authToken', 'current_user']);
+      console.log('App: Auth data cleared');
+
+      // Update state
+      setIsAuthenticated(false);
+
+      // Reset navigation to Login screen
+      if (navigationRef.current) {
+        navigationRef.current.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Error during logout:', error);
+    }
+  };
 
   const checkAuthStatus = async () => {
     try {
@@ -274,30 +349,24 @@ function App() {
         timeout: 10000, // 10 second timeout
       });
 
+      // Check for error in response body (some APIs return 200 with error)
+      if (response.data?.error === 'Signature has expired') {
+        console.log('Token expired - triggering logout');
+        appEvents.emit(EVENTS.AUTH_LOGOUT);
+        return;
+      }
+
       // Update stored user data with fresh data
       if (response.status === 200 && response.data?.data) {
         await AsyncStorage.setItem('current_user', JSON.stringify(response.data.data));
         appEvents.emit(EVENTS.PROFILE_UPDATED);
       }
     } catch (error: any) {
-      if (error.response) {
-        const status = error.response.status;
-        // 401 Unauthorized or 403 Forbidden means token is invalid/expired
-        if (status === 401 || status === 403) {
-          console.log('Token expired or invalid - logging out');
-          await clearAuthData();
-          setIsAuthenticated(false);
-        }
-      }
+      // Interceptor will handle 401/403 errors automatically
       // For network errors, keep user logged in (already showing app)
-    }
-  };
-
-  const clearAuthData = async () => {
-    try {
-      await AsyncStorage.multiRemove(['authToken', 'current_user']);
-    } catch (error) {
-      console.error('Error clearing auth data:', error);
+      if (!error.response) {
+        console.log('Network error during token validation - keeping user logged in');
+      }
     }
   };
 
@@ -315,7 +384,7 @@ function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <StatusBar barStyle="dark-content" backgroundColor="#fff" />
         <Stack.Navigator
           initialRouteName={isAuthenticated ? "Tabs" : "Login"}
@@ -329,7 +398,6 @@ function App() {
           <Stack.Screen name="Categories" component={CategoriesScreen} />
           <Stack.Screen name="CreateListing" component={CreateListing} />
           <Stack.Screen name="CreateReel" component={CreateReel} />
-
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

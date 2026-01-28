@@ -50,6 +50,7 @@ export const EVENTS = {
   LISTING_UPDATED: 'LISTING_UPDATED',      // When a listing is edited
   LISTING_DELETED: 'LISTING_DELETED',      // When a listing is deleted
   LISTING_CREATED: 'LISTING_CREATED',      // When a new listing is created
+  AUTH_LOGOUT: 'AUTH_LOGOUT',  // ← Add this line
 };
 
 export default appEvents;

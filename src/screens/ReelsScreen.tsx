@@ -21,21 +21,13 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { BlurView } from '@react-native-community/blur';
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
+import Slider from '@react-native-community/slider';
 
 const { width, height } = Dimensions.get('window');
 
-// Full screen height - no bottom tab subtraction for immersive experience
 const VIDEO_HEIGHT = height;
-
-// Theme color
 const THEME_COLOR = '#f1641e';
-const THEME_COLOR_LIGHT = 'rgba(241, 100, 30, 0.3)';
-
-// API Base URL
 const API_BASE_URL = 'https://mandimore.com/v1';
-
-// Default avatar placeholder
 const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?background=f1641e&color=fff&name=';
 
 interface ReelOwner {
@@ -69,13 +61,14 @@ interface ApiResponse {
 interface ReelItemProps {
   item: Reel;
   isActive: boolean;
+  isScreenFocused: boolean;
   onLike: (id: number) => void;
   onComment: (id: number) => void;
   onShare: (item: Reel) => void;
   onUserPress: (userId: number) => void;
 }
 
-// Glassmorphism CTA Button Component - Compact Pill Style
+// Glassmorphism CTA Button Component
 const GlassCTAButton: React.FC<{
   onPress: () => void;
   icon: string;
@@ -126,7 +119,6 @@ const GlassCTAButton: React.FC<{
             <Ionicons name={icon as any} size={14} color={iconColor} />
             <Text style={styles.glassCTAText}>{label}</Text>
           </View>
-          {/* Subtle border glow */}
           <View style={[styles.glassCTABorder, { borderColor: `${iconColor}40` }]} />
         </View>
       </TouchableOpacity>
@@ -137,18 +129,23 @@ const GlassCTAButton: React.FC<{
 const ReelItem: React.FC<ReelItemProps> = ({
   item,
   isActive,
+  isScreenFocused,
   onLike,
   onComment,
   onShare,
   onUserPress,
 }) => {
-  const [paused, setPaused] = useState(!isActive);
+  const [paused, setPaused] = useState(!isActive || !isScreenFocused);
   const [loading, setLoading] = useState(true);
   const [liked, setLiked] = useState(item.isLiked || false);
   const [likesCount, setLikesCount] = useState(item.likes);
   const [showPlayIcon, setShowPlayIcon] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [sliderValue, setSliderValue] = useState(0);
   const heartScale = useRef(new Animated.Value(1)).current;
   const playIconOpacity = useRef(new Animated.Value(0)).current;
   const doubleTapHeartScale = useRef(new Animated.Value(0)).current;
@@ -156,28 +153,40 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const videoRef = useRef<any>(null);
   const lastTap = useRef<number>(0);
 
+  // Pause video when not active or screen not focused
   useEffect(() => {
-    setPaused(!isActive);
+    const shouldPlay = isActive && isScreenFocused && !isSeeking;
+    setPaused(!shouldPlay);
+
     if (!isActive) {
       setIsDescriptionExpanded(false);
+      if (videoRef.current) {
+        videoRef.current.seek(0);
+      }
+      setCurrentTime(0);
+      setSliderValue(0);
     }
-  }, [isActive]);
+  }, [isActive, isScreenFocused, isSeeking]);
 
-  // Update liked state when item changes
   useEffect(() => {
     setLiked(item.isLiked || false);
     setLikesCount(item.likes);
   }, [item.isLiked, item.likes]);
+
+  // Update slider value when not seeking
+  useEffect(() => {
+    if (!isSeeking) {
+      setSliderValue(currentTime);
+    }
+  }, [currentTime, isSeeking]);
 
   const handleVideoPress = useCallback(() => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300;
 
     if (now - lastTap.current < DOUBLE_TAP_DELAY) {
-      // Double tap - like
       handleDoubleTapLike();
     } else {
-      // Single tap - play/pause
       setTimeout(() => {
         if (Date.now() - lastTap.current >= DOUBLE_TAP_DELAY) {
           setPaused(prev => !prev);
@@ -205,12 +214,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const handleDoubleTapLike = useCallback(() => {
     if (!liked) {
       setLiked(true);
-      // Increment like count (handle string format)
       setLikesCount(prev => incrementCount(prev));
       onLike(item.id);
     }
 
-    // Show floating heart animation
     Animated.parallel([
       Animated.sequence([
         Animated.timing(doubleTapHeartOpacity, {
@@ -241,35 +248,21 @@ const ReelItem: React.FC<ReelItemProps> = ({
     ]).start();
   }, [liked, item.id, onLike]);
 
-  // Helper function to parse and increment count strings like "10k", "1M"
   const parseCount = (countStr: string): number => {
     const str = countStr.toLowerCase().trim();
-    if (str.endsWith('m')) {
-      return parseFloat(str) * 1000000;
-    } else if (str.endsWith('k')) {
-      return parseFloat(str) * 1000;
-    }
+    if (str.endsWith('m')) return parseFloat(str) * 1000000;
+    if (str.endsWith('k')) return parseFloat(str) * 1000;
     return parseInt(str) || 0;
   };
 
   const formatCount = (count: number): string => {
-    if (count >= 1000000) {
-      return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-    } else if (count >= 1000) {
-      return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
-    }
+    if (count >= 1000000) return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
     return count.toString();
   };
 
-  const incrementCount = (countStr: string): string => {
-    const count = parseCount(countStr);
-    return formatCount(count + 1);
-  };
-
-  const decrementCount = (countStr: string): string => {
-    const count = parseCount(countStr);
-    return formatCount(Math.max(0, count - 1));
-  };
+  const incrementCount = (countStr: string): string => formatCount(parseCount(countStr) + 1);
+  const decrementCount = (countStr: string): string => formatCount(Math.max(0, parseCount(countStr) - 1));
 
   const handleLikePress = useCallback(() => {
     const wasLiked = liked;
@@ -278,26 +271,13 @@ const ReelItem: React.FC<ReelItemProps> = ({
     onLike(item.id);
 
     Animated.sequence([
-      Animated.spring(heartScale, {
-        toValue: 1.3,
-        useNativeDriver: true,
-        speed: 50,
-      }),
-      Animated.spring(heartScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        speed: 50,
-      }),
+      Animated.spring(heartScale, { toValue: 1.3, useNativeDriver: true, speed: 50 }),
+      Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, speed: 50 }),
     ]).start();
   }, [liked, item.id, onLike, heartScale]);
 
-  const handleFollowPress = useCallback(() => {
-    setIsFollowing(prev => !prev);
-  }, []);
-
-  const toggleDescription = useCallback(() => {
-    setIsDescriptionExpanded(prev => !prev);
-  }, []);
+  const handleFollowPress = useCallback(() => setIsFollowing(prev => !prev), []);
+  const toggleDescription = useCallback(() => setIsDescriptionExpanded(prev => !prev), []);
 
   const getUserDisplayName = () => {
     if (item.reel_owner) {
@@ -309,8 +289,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   const getAvatarUrl = () => {
     if (item.reel_owner?.avatar_url) return item.reel_owner.avatar_url;
-    const name = item.reel_owner 
-      ? `${item.reel_owner.first_name || 'M'}+${item.reel_owner.last_name || ''}` 
+    const name = item.reel_owner
+      ? `${item.reel_owner.first_name || 'M'}+${item.reel_owner.last_name || ''}`
       : 'Mandimore';
     return `${DEFAULT_AVATAR}${name}`;
   };
@@ -318,31 +298,51 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const isVerified = item.reel_owner?.verified || false;
 
   const handleCallPress = useCallback(() => {
-    const phoneNumber = 'tel:+923001234567';
-    Linking.openURL(phoneNumber).catch(err => {
-      console.error('Error opening phone:', err);
-    });
+    Linking.openURL('tel:+923001234567').catch(err => console.error('Error opening phone:', err));
   }, []);
 
   const handleWhatsAppPress = useCallback(() => {
     const phoneNumber = '+923001234567';
     const message = encodeURIComponent(`Hi! I'm interested in "${item.title}" I saw on Mandimore.`);
     const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${message}`;
-
-    Linking.openURL(whatsappUrl).catch(err => {
-      console.error('Error opening WhatsApp:', err);
+    Linking.openURL(whatsappUrl).catch(() => {
       Linking.openURL(`https://wa.me/${phoneNumber}?text=${message}`);
     });
   }, [item.title]);
 
+  const handleProgress = useCallback((data: { currentTime: number }) => {
+    if (!isSeeking) {
+      setCurrentTime(data.currentTime);
+    }
+  }, [isSeeking]);
+
+  const handleLoad = useCallback((data: { duration: number }) => {
+    setLoading(false);
+    setDuration(data.duration);
+  }, []);
+
+  const handleSlidingStart = useCallback(() => {
+    setIsSeeking(true);
+  }, []);
+
+  const handleSlidingComplete = useCallback((value: number) => {
+    if (videoRef.current) {
+      videoRef.current.seek(value);
+      setCurrentTime(value);
+    }
+    setIsSeeking(false);
+  }, []);
+
+  const formatTime = (seconds: number): string => {
+    if (isNaN(seconds) || seconds < 0) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <View style={styles.reelContainer}>
-      <TouchableOpacity
-        activeOpacity={1}
-        style={styles.videoContainer}
-        onPress={handleVideoPress}
-      >
-        
+      <TouchableOpacity activeOpacity={1} style={styles.videoContainer} onPress={handleVideoPress}>
         <Video
           ref={videoRef}
           source={{ uri: item.hls_url }}
@@ -353,8 +353,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
           playInBackground={false}
           playWhenInactive={false}
           ignoreSilentSwitch="ignore"
-          onLoad={() => setLoading(false)}
+          onLoad={handleLoad}
+          onProgress={handleProgress}
           onBuffer={({ isBuffering }) => setLoading(isBuffering)}
+          progressUpdateInterval={250}
           bufferConfig={{
             minBufferMs: 2000,
             maxBufferMs: 10000,
@@ -371,40 +373,28 @@ const ReelItem: React.FC<ReelItemProps> = ({
           </View>
         )}
 
-        {/* Play/Pause Icon */}
         {showPlayIcon && (
           <Animated.View style={[styles.playIconContainer, { opacity: playIconOpacity }]}>
             <View style={styles.playIconBackground}>
-              <Ionicons
-                name={paused ? 'play' : 'pause'}
-                size={50}
-                color="#fff"
-              />
+              <Ionicons name={paused ? 'play' : 'pause'} size={50} color="#fff" />
             </View>
           </Animated.View>
         )}
 
-        {/* Double Tap Heart */}
         <Animated.View
           style={[
             styles.doubleTapHeartContainer,
-            {
-              opacity: doubleTapHeartOpacity,
-              transform: [{ scale: doubleTapHeartScale }],
-            },
+            { opacity: doubleTapHeartOpacity, transform: [{ scale: doubleTapHeartScale }] },
           ]}
         >
           <Ionicons name="heart" size={100} color={THEME_COLOR} />
         </Animated.View>
 
-        {/* Bottom Gradient - Extended for full screen */}
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.85)']}
           locations={[0, 0.5, 1]}
           style={styles.bottomGradient}
         />
-
-        {/* Top Gradient */}
         <LinearGradient
           colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.3)', 'transparent']}
           locations={[0, 0.5, 1]}
@@ -412,62 +402,60 @@ const ReelItem: React.FC<ReelItemProps> = ({
         />
       </TouchableOpacity>
 
+      {/* Video Progress Bar - Always Visible */}
+      {duration > 0 && (
+        <View style={styles.progressBarContainer}>
+          <Text style={styles.progressTime}>{formatTime(isSeeking ? sliderValue : currentTime)}</Text>
+          <View style={styles.sliderContainer}>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={duration}
+              value={sliderValue}
+              onValueChange={(value) => setSliderValue(value)}
+              onSlidingStart={handleSlidingStart}
+              onSlidingComplete={handleSlidingComplete}
+              minimumTrackTintColor={THEME_COLOR}
+              maximumTrackTintColor="rgba(255,255,255,0.3)"
+              thumbTintColor={THEME_COLOR}
+            />
+          </View>
+          <Text style={styles.progressTime}>{formatTime(duration)}</Text>
+        </View>
+      )}
+
       {/* Right Action Buttons */}
       <View style={styles.actionsContainer}>
-        {/* User Avatar */}
         <TouchableOpacity
           style={styles.avatarButton}
           onPress={() => item.reel_owner && onUserPress(item.reel_owner.id)}
           disabled={!item.reel_owner}
         >
           <View style={styles.avatarWrapper}>
-            <Image
-              source={{ uri: getAvatarUrl() }}
-              style={styles.actionAvatar}
-            />
+            <Image source={{ uri: getAvatarUrl() }} style={styles.actionAvatar} />
             <View style={styles.avatarRing} />
           </View>
           <TouchableOpacity
-            style={[
-              styles.followButton,
-              isFollowing && styles.followButtonActive,
-            ]}
+            style={[styles.followButton, isFollowing && styles.followButtonActive]}
             onPress={handleFollowPress}
           >
-            <Ionicons
-              name={isFollowing ? 'checkmark' : 'add'}
-              size={12}
-              color="#fff"
-            />
+            <Ionicons name={isFollowing ? 'checkmark' : 'add'} size={12} color="#fff" />
           </TouchableOpacity>
         </TouchableOpacity>
 
-        {/* Like Button */}
         <TouchableOpacity style={styles.actionButton} onPress={handleLikePress}>
           <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-            <Ionicons
-              name={liked ? 'heart' : 'heart-outline'}
-              size={32}
-              color={liked ? '#ff4757' : '#fff'}
-            />
+            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={32} color={liked ? '#ff4757' : '#fff'} />
           </Animated.View>
           <Text style={styles.actionText}>{likesCount}</Text>
         </TouchableOpacity>
 
-        {/* Comment Button */}
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => onComment(item.id)}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onComment(item.id)}>
           <Ionicons name="chatbubble-ellipses-outline" size={30} color="#fff" />
           <Text style={styles.actionText}>{item.comments}</Text>
         </TouchableOpacity>
 
-        {/* Share Button */}
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => onShare(item)}
-        >
+        <TouchableOpacity style={styles.actionButton} onPress={() => onShare(item)}>
           <Ionicons name="paper-plane-outline" size={28} color="#fff" />
           <Text style={styles.actionText}>{item.shares}</Text>
         </TouchableOpacity>
@@ -475,7 +463,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
       {/* Bottom Info */}
       <View style={styles.bottomInfo}>
-        {/* User Info */}
         <TouchableOpacity
           style={styles.userInfo}
           onPress={() => item.reel_owner && onUserPress(item.reel_owner.id)}
@@ -483,56 +470,33 @@ const ReelItem: React.FC<ReelItemProps> = ({
         >
           <Text style={styles.userName}>@{getUserDisplayName()}</Text>
           {isVerified && (
-            <View style={styles.verifiedBadge}>
-              <Ionicons name="checkmark-circle" size={16} color={THEME_COLOR} />
-            </View>
+            <Ionicons name="checkmark-circle" size={16} color={THEME_COLOR} style={styles.verifiedBadge} />
           )}
         </TouchableOpacity>
 
-        {/* Title */}
         {item.title && (
           <Text style={styles.titleText} numberOfLines={1}>
             {item.title}
           </Text>
         )}
 
-        {/* Description - Expandable */}
         {item.description && (
           <TouchableOpacity onPress={toggleDescription} activeOpacity={0.8}>
-            <View style={[
-              styles.descriptionContainer,
-              isDescriptionExpanded && styles.descriptionContainerExpanded
-            ]}>
-              <Text
-                style={styles.description}
-                numberOfLines={isDescriptionExpanded ? undefined : 2}
-              >
+            <View style={[styles.descriptionContainer, isDescriptionExpanded && styles.descriptionContainerExpanded]}>
+              <Text style={styles.description} numberOfLines={isDescriptionExpanded ? undefined : 2}>
                 {item.description}
               </Text>
-              {!isDescriptionExpanded && item.description && item.description.length > 80 && (
+              {!isDescriptionExpanded && item.description.length > 80 && (
                 <Text style={styles.seeMoreText}>... more</Text>
               )}
-              {isDescriptionExpanded && (
-                <Text style={styles.seeLessText}>Show less</Text>
-              )}
+              {isDescriptionExpanded && <Text style={styles.seeLessText}>Show less</Text>}
             </View>
           </TouchableOpacity>
         )}
 
-        {/* Glassmorphism CTA Buttons */}
         <View style={styles.ctaContainer}>
-          <GlassCTAButton
-            onPress={handleCallPress}
-            icon="call"
-            label="Call Now"
-            variant="call"
-          />
-          <GlassCTAButton
-            onPress={handleWhatsAppPress}
-            icon="logo-whatsapp"
-            label="WhatsApp"
-            variant="whatsapp"
-          />
+          <GlassCTAButton onPress={handleCallPress} icon="call" label="Call Now" variant="call" />
+          <GlassCTAButton onPress={handleWhatsAppPress} icon="logo-whatsapp" label="WhatsApp" variant="whatsapp" />
         </View>
       </View>
 
@@ -556,9 +520,9 @@ const ReelsScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
   const flatListRef = useRef<FlatList>(null);
 
-  // Fetch reels from API
   const fetchReels = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) {
@@ -573,7 +537,7 @@ const ReelsScreen: React.FC = () => {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
-            Accept: "application/json",
+          Accept: "application/json",
         },
       });
 
@@ -593,26 +557,22 @@ const ReelsScreen: React.FC = () => {
     }
   }, []);
 
-  // Initial fetch on mount
   useEffect(() => {
     fetchReels();
   }, [fetchReels]);
 
+  // Handle screen focus/unfocus - PAUSE VIDEO WHEN LEAVING TAB
   useFocusEffect(
     useCallback(() => {
+      setIsScreenFocused(true);
       return () => {
-        // Cleanup on unfocus
+        setIsScreenFocused(false);
       };
     }, [])
   );
 
-  const handleRefresh = useCallback(() => {
-    fetchReels(true);
-  }, [fetchReels]);
-
-  const handleBackPress = () => {
-    navigation.goBack();
-  };
+  const handleRefresh = useCallback(() => fetchReels(true), [fetchReels]);
+  const handleBackPress = () => navigation.goBack();
 
   const handleViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
@@ -620,16 +580,10 @@ const ReelsScreen: React.FC = () => {
     }
   }).current;
 
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 60,
-  }).current;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
 
   const handleLike = useCallback((id: number) => {
-    setReels(prev =>
-      prev.map(reel =>
-        reel.id === id ? { ...reel, isLiked: !reel.isLiked } : reel
-      )
-    );
+    setReels(prev => prev.map(reel => (reel.id === id ? { ...reel, isLiked: !reel.isLiked } : reel)));
   }, []);
 
   const handleComment = useCallback((id: number) => {
@@ -656,21 +610,18 @@ const ReelsScreen: React.FC = () => {
       <ReelItem
         item={item}
         isActive={index === activeIndex}
+        isScreenFocused={isScreenFocused}
         onLike={handleLike}
         onComment={handleComment}
         onShare={handleShare}
         onUserPress={handleUserPress}
       />
     ),
-    [activeIndex, handleLike, handleComment, handleShare, handleUserPress]
+    [activeIndex, isScreenFocused, handleLike, handleComment, handleShare, handleUserPress]
   );
 
   const getItemLayout = useCallback(
-    (_: any, index: number) => ({
-      length: VIDEO_HEIGHT,
-      offset: VIDEO_HEIGHT * index,
-      index,
-    }),
+    (_: any, index: number) => ({ length: VIDEO_HEIGHT, offset: VIDEO_HEIGHT * index, index }),
     []
   );
 
@@ -738,21 +689,14 @@ const ReelsScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="transparent"
-        translucent
-      />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={handleBackPress}
-        >
+        <TouchableOpacity style={styles.headerButton} onPress={handleBackPress}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        
+
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Reels</Text>
           <View style={styles.headerDot} />
@@ -773,6 +717,10 @@ const ReelsScreen: React.FC = () => {
         snapToInterval={VIDEO_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
+        disableIntervalMomentum={true}
+        scrollEventThrottle={16}
+        bounces={false}
+        overScrollMode="never"
         onViewableItemsChanged={handleViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         getItemLayout={getItemLayout}
@@ -925,7 +873,34 @@ const styles = StyleSheet.create({
     right: 0,
     height: 150,
   },
-
+  // Progress Bar
+  progressBarContainer: {
+    position: 'absolute',
+    bottom: 70,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  sliderContainer: {
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
+  progressTime: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 11,
+    fontWeight: '600',
+    minWidth: 35,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   // Header
   header: {
     position: 'absolute',
@@ -968,12 +943,11 @@ const styles = StyleSheet.create({
     backgroundColor: THEME_COLOR,
     marginLeft: 6,
   },
-
   // Actions
   actionsContainer: {
     position: 'absolute',
     right: 12,
-    bottom: 10,
+    bottom: 120,
     alignItems: 'center',
   },
   avatarButton: {
@@ -1031,7 +1005,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-
   // Bottom Info
   bottomInfo: {
     position: 'absolute',
@@ -1053,10 +1026,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   verifiedBadge: {
-    marginLeft: 6,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 1,
+    marginLeft: 4,
   },
   titleText: {
     color: '#fff',
@@ -1093,30 +1063,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
   },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  locationText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 13,
-    marginLeft: 6,
-    fontWeight: '500',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-
-  // Glassmorphism CTA Buttons - Compact Pill Style
+  // Glassmorphism CTA Buttons
   ctaContainer: {
     flexDirection: 'row',
     gap: 10,
     marginTop: 6,
   },
-  glassCTAWrapper: {
-    // Remove flex: 1 to allow buttons to size to content
-  },
+  glassCTAWrapper: {},
   glassCTAButton: {
     borderRadius: 100,
     overflow: 'hidden',
@@ -1148,7 +1101,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
   },
-
   // Sound Info
   soundInfo: {
     position: 'absolute',
