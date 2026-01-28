@@ -1,841 +1,1017 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  StyleSheet,
-  Modal,
+  TextInput,
   TouchableOpacity,
-  FlatList,
+  StyleSheet,
+  ScrollView,
+  Modal,
   Image,
+  Alert,
   ActivityIndicator,
-  Dimensions,
   Platform,
   PermissionsAndroid,
-  RefreshControl,
-  Linking,
-} from 'react-native';
-import { Ionicons } from '@react-native-vector-icons/ionicons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+} from "react-native";
+import axios from "axios";
+import { launchImageLibrary } from "react-native-image-picker";
+import { Ionicons } from "@react-native-vector-icons/ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Geolocation from 'react-native-geolocation-service';
-import axios from 'axios';
+import Toast from "react-native-toast-message";
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 48) / 2;
-const THEME_COLOR = '#f1641e';
+interface Props {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit?: () => void; // Callback after successful submission
+  editMode?: boolean; // Whether we're editing or creating
+  initialData?: ProductFormData; // Initial data for edit mode
+  listingId?: number; // ID of listing being edited
+}
 
-interface NearbyProduct {
-  id: number;
+export interface ProductFormData {
   title: string;
   breed: string;
   description: string;
   age: string;
   color: string;
   weight: string;
+  height: string;
   price: string;
   health_status: string;
+  country: string;
+  province: string;
   address: string;
-  distance: number;
-  image_urls: string[];
-  user: {
-    id: number;
-    first_name: string;
-    last_name: string;
-    username: string;
-    verified: boolean;
-    user_avatar_url: string | null;
-  };
+  latitude: string;
+  longitude: string;
+  category_id: string;
+  custom_button: string;
 }
 
-interface NearbyProductsModalProps {
-  visible: boolean;
-  onClose: () => void;
-  onProductSelect: (product: NearbyProduct) => void;
-}
+// Pakistani Provinces
+const PAKISTANI_PROVINCES = [
+  "Punjab",
+  "Sindh",
+  "Khyber Pakhtunkhwa",
+  "Balochistan",
+  "Gilgit-Baltistan",
+  "Azad Kashmir",
+  "Islamabad Capital Territory",
+];
 
-const RADIUS_OPTIONS = [10, 25, 50, 100, 200, 500];
-
-const NearbyProductsModal: React.FC<NearbyProductsModalProps> = ({
-  visible,
-  onClose,
-  onProductSelect,
+const CreateOrEditProductModal: React.FC<Props> = ({ 
+  visible, 
+  onClose, 
+  onSubmit,
+  editMode = false,
+  initialData,
+  listingId,
 }) => {
-  const [products, setProducts] = useState<NearbyProduct[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedRadius, setSelectedRadius] = useState(200);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const [permissionStatus, setPermissionStatus] = useState<string>('unknown');
+  const [images, setImages] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [errors, setErrors] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [locationLoading, setLocationLoading] = useState<boolean>(false);
 
-  // Request location permission for Android
-  const requestAndroidPermission = async (): Promise<boolean> => {
-    try {
-      const fineLocationGranted = await PermissionsAndroid.check(
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-      );
-      
-      if (fineLocationGranted) {
-        setPermissionStatus('granted');
-        return true;
-      }
+  const [form, setForm] = useState<ProductFormData>({
+    title: "",
+    breed: "",
+    description: "",
+    age: "",
+    color: "",
+    weight: "",
+    height: "",
+    price: "",
+    health_status: "",
+    country: "Pakistan",
+    province: "",
+    address: "",
+    latitude: "",
+    longitude: "",
+    category_id: "",
+    custom_button: "",
+  });
 
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-      ]);
-
-      const fineLocation = granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
-      const coarseLocation = granted[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION];
-
-      if (
-        fineLocation === PermissionsAndroid.RESULTS.GRANTED ||
-        coarseLocation === PermissionsAndroid.RESULTS.GRANTED
-      ) {
-        setPermissionStatus('granted');
-        return true;
-      } else if (
-        fineLocation === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN ||
-        coarseLocation === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
-      ) {
-        setPermissionStatus('never_ask_again');
-        return false;
-      } else {
-        setPermissionStatus('denied');
-        return false;
-      }
-    } catch (err) {
-      console.warn('Permission request error:', err);
-      setPermissionStatus('error');
-      return false;
-    }
+  const updateField = (key: keyof ProductFormData, value: string) => {
+    setErrors("");
+    setForm({ ...form, [key]: value });
   };
 
-  const requestLocationPermission = async (): Promise<boolean> => {
-    if (Platform.OS === 'ios') {
-      const status = await Geolocation.requestAuthorization('whenInUse');
-      return status === 'granted';
-    } else {
-      return await requestAndroidPermission();
-    }
-  };
-
-  const openSettings = () => {
-    if (Platform.OS === 'ios') {
-      Linking.openURL('app-settings:');
-    } else {
-      Linking.openSettings();
-    }
-  };
-
-  const getCurrentLocation = useCallback(async (): Promise<{ lat: number; lng: number } | null> => {
-    setLocationError(null);
-    setError(null);
-    
-    const hasPermission = await requestLocationPermission();
-    
-    if (!hasPermission) {
-      if (permissionStatus === 'never_ask_again') {
-        setLocationError('Location permission permanently denied. Please enable it in Settings.');
-      } else {
-        setLocationError('Location permission denied. Please allow location access.');
-      }
-      return null;
-    }
-
-    return new Promise<{ lat: number; lng: number } | null>((resolve) => {
-      Geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
-          setUserLocation(location);
-          setLocationError(null);
-          resolve(location);
-        },
-        (geoError) => {
-          let errorMessage = 'Unable to get your location.';
-          
-          switch (geoError.code) {
-            case 1:
-              errorMessage = 'Location permission denied. Please enable location in Settings.';
-              setPermissionStatus('denied');
-              break;
-            case 2:
-              errorMessage = 'Location unavailable. Please check if GPS/Location is enabled on your device.';
-              break;
-            case 3:
-              errorMessage = 'Location request timed out. Please try again.';
-              break;
-            default:
-              errorMessage = `Location error: ${geoError.message}`;
-          }
-          
-          setLocationError(errorMessage);
-          resolve(null);
-        },
-        {
-          enableHighAccuracy: false,
-          timeout: 30000,
-          maximumAge: 300000,
-        }
-      );
+  // Reset form
+  const resetForm = () => {
+    setForm({
+      title: "",
+      breed: "",
+      description: "",
+      age: "",
+      color: "",
+      weight: "",
+      height: "",
+      price: "",
+      health_status: "",
+      country: "Pakistan",
+      province: "",
+      address: "",
+      latitude: "",
+      longitude: "",
+      category_id: "",
+      custom_button: "",
     });
-  }, [permissionStatus]);
+    setImages([]);
+    setErrors("");
+  };
 
-  const fetchNearbyProducts = useCallback(async (radius: number, isRefresh = false) => {
-    if (!isRefresh) {
-      setLoading(true);
-    }
-    setError(null);
-    setLocationError(null);
-
-    try {
-      let location = userLocation;
-      
-      if (!location) {
-        location = await getCurrentLocation();
-        if (!location) {
-          setLoading(false);
-          setRefreshing(false);
-          return;
-        }
-      }
-
-      const token = await AsyncStorage.getItem('authToken');
-      
-      const url = `https://mandimore.com/v1/nearby_products?lat=${location.lat}&lng=${location.lng}&radius=${radius}`;
-
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-      });
-
-      if (response.data && response.data.code === 200) {
-        setProducts(response.data.data || []);
-      } else {
-        setError(response.data.message || 'Failed to fetch nearby products');
-      }
-    } catch (err: any) {
-      console.error('Error fetching nearby products:', err);
-      setError('Unable to load nearby products. Please try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [userLocation, getCurrentLocation]);
-
+  // Fetch Categories When Modal Opens
   useEffect(() => {
     if (visible) {
-      setUserLocation(null);
-      fetchNearbyProducts(selectedRadius);
+      fetchCategories();
+      if (!editMode) {
+        fetchLocation();
+      }
     }
   }, [visible]);
 
-  const handleRadiusChange = (radius: number) => {
-    setSelectedRadius(radius);
-    if (userLocation) {
-      fetchNearbyProducts(radius);
+  // Populate form with initial data in edit mode
+  useEffect(() => {
+    if (editMode && initialData) {
+      setForm(initialData);
+      // Clear images in edit mode - user won't be able to change them
+      setImages([]);
+    } else if (!editMode) {
+      // Reset form when switching to create mode
+      resetForm();
+    }
+  }, [editMode, initialData, visible]);
+
+  const fetchCategories = async () => {
+    try {
+      const token = await AsyncStorage.getItem("authToken");
+
+      const res = await axios.get("https://mandimore.com/v1/fetch_all_categories", {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setCategories(res.data.data);
+    } catch (err) {
+      console.log("Category Fetch Error:", err);
     }
   };
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    setUserLocation(null);
-    fetchNearbyProducts(selectedRadius, true);
-  };
-
-  const handleRetry = () => {
-    setUserLocation(null);
-    setLocationError(null);
-    setError(null);
-    fetchNearbyProducts(selectedRadius);
-  };
-
-  const formatPrice = (price: string) => {
-    return `PKR ${parseFloat(price).toLocaleString('en-PK')}`;
-  };
-
-  const formatDistance = (distance: number) => {
-    if (distance < 1) {
-      return `${Math.round(distance * 1000)} m`;
+  // Request location permission (Android)
+  const requestLocationPermission = async () => {
+    if (Platform.OS === "android") {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: "Location Permission",
+            message: "This app needs access to your location to auto-fill address details.",
+            buttonNeutral: "Ask Me Later",
+            buttonNegative: "Cancel",
+            buttonPositive: "OK",
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
     }
-    return `${distance.toFixed(1)} km`;
+    return true; // iOS handles permissions automatically
   };
 
-  const renderRadiusSelector = () => (
-    <View style={styles.radiusContainer}>
-      <Text style={styles.radiusLabel}>Search Radius:</Text>
-      <FlatList
-        horizontal
-        data={RADIUS_OPTIONS}
-        keyExtractor={(item) => item.toString()}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.radiusList}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[
-              styles.radiusChip,
-              selectedRadius === item && styles.radiusChipActive,
-            ]}
-            onPress={() => handleRadiusChange(item)}
-          >
-            <Text
-              style={[
-                styles.radiusChipText,
-                selectedRadius === item && styles.radiusChipTextActive,
-              ]}
-            >
-              {item} km
-            </Text>
-          </TouchableOpacity>
-        )}
-      />
-    </View>
-  );
+  // Fetch location using React Native Geolocation API
+  const fetchLocation = async () => {
+    setLocationLoading(true);
 
-  const renderProductItem = ({ item }: { item: NearbyProduct }) => {
-    const hasImage = item.image_urls && item.image_urls.length > 0;
-    const imageUrl = hasImage ? item.image_urls[0] : 'https://via.placeholder.com/200';
+    // Request permission first (Android)
+    const hasPermission = await requestLocationPermission();
+    
+    if (!hasPermission) {
+      Toast.show({
+        type: "error",
+        text1: "Permission Denied",
+        text2: "Location permission is required to auto-fill your location.",
+        position: "top",
+      });
+      setLocationLoading(false);
+      return;
+    }
 
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        activeOpacity={0.9}
-        onPress={() => {
-          onProductSelect(item);
-          onClose();
-        }}
-      >
-        <View style={styles.imageContainer}>
-          <Image source={{ uri: imageUrl }} style={styles.image} />
-          
-          {/* Distance Badge */}
-          <View style={styles.distanceBadge}>
-            <Ionicons name="navigate" size={10} color="#fff" />
-            <Text style={styles.distanceBadgeText}>{formatDistance(item.distance)}</Text>
-          </View>
-
-          {hasImage && item.image_urls.length > 1 && (
-            <View style={styles.imageBadge}>
-              <Ionicons name="images-outline" size={12} color="#fff" />
-              <Text style={styles.imageBadgeText}>{item.image_urls.length}</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.cardContent}>
-          {/* User Info Row */}
-          <View style={styles.userRow}>
-            {item.user.user_avatar_url ? (
-              <Image source={{ uri: item.user.user_avatar_url }} style={styles.userAvatar} />
-            ) : (
-              <View style={styles.userAvatarPlaceholder}>
-                <Ionicons name="person" size={12} color="#999" />
-              </View>
-            )}
-            <Text style={styles.userNameText} numberOfLines={1}>
-              {item.user.first_name}
-            </Text>
-            {item.user.verified && (
-              <Ionicons name="checkmark-circle" size={14} color={THEME_COLOR} />
-            )}
-          </View>
-
-          <Text style={styles.title} numberOfLines={2}>
-            {item.title}
-          </Text>
-
-          <View style={styles.breedContainer}>
-            <View style={styles.breedBadge}>
-              <Text style={styles.breedText} numberOfLines={1}>
-                {item.breed}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.detailsRow}>
-            <View style={styles.detailItem}>
-              <Ionicons name="time-outline" size={12} color="#999" />
-              <Text style={styles.detailText}>{item.age || 'N/A'}</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="scale-outline" size={12} color="#999" />
-              <Text style={styles.detailText}>{item.weight || 'N/A'}</Text>
-            </View>
-          </View>
-
-          {item.address && (
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={12} color="#666" />
-              <Text style={styles.location} numberOfLines={1}>
-                {item.address}
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>{formatPrice(item.price)}</Text>
-            {item.health_status === 'excellent' && (
-              <View style={styles.healthBadge}>
-                <Ionicons name="shield-checkmark" size={10} color="#4CAF50" />
-                <Text style={styles.healthText}>Healthy</Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </TouchableOpacity>
+    Geolocation.getCurrentPosition(
+      (position) => {
+        setForm((prev) => ({
+          ...prev,
+          latitude: position.coords.latitude.toFixed(6),
+          longitude: position.coords.longitude.toFixed(6),
+        }));
+        setLocationLoading(false);
+        Toast.show({
+          type: "success",
+          text1: "Success",
+          text2: "Location fetched successfully!",
+          position: "top",
+        });
+      },
+      (error) => {
+        console.log("Location error:", error);
+        setLocationLoading(false);
+        Toast.show({
+          type: "error",
+          text1: "Location Error",
+          text2: `Could not fetch location. Please enter manually.`,
+          position: "top",
+        });
+      },
+      { 
+        enableHighAccuracy: true, 
+        timeout: 20000, 
+        maximumAge: 10000 
+      }
     );
   };
 
-  const renderEmpty = () => (
-    <View style={styles.emptyContainer}>
-      <View style={styles.emptyIconWrapper}>
-        <Ionicons name="location-outline" size={60} color="#ccc" />
-      </View>
-      <Text style={styles.emptyTitle}>No Nearby Pets Found</Text>
-      <Text style={styles.emptyText}>
-        Try increasing the search radius or check back later for new listings.
-      </Text>
-      <TouchableOpacity style={styles.emptyButton} onPress={handleRetry}>
-        <Ionicons name="refresh" size={18} color="#fff" />
-        <Text style={styles.emptyButtonText}>Try Again</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  // Pick Multiple Images (only in create mode)
+  const pickImages = async () => {
+    const result: any = await launchImageLibrary({
+      mediaType: "photo",
+      quality: 0.8,
+      selectionLimit: 5, // Allow up to 5 images
+    });
 
-  const renderError = () => (
-    <View style={styles.emptyContainer}>
-      <View style={[styles.emptyIconWrapper, { backgroundColor: '#fff5f5' }]}>
-        <Ionicons name="alert-circle-outline" size={60} color="#ff6b6b" />
-      </View>
-      <Text style={styles.emptyTitle}>{locationError ? 'Location Error' : 'Oops!'}</Text>
-      <Text style={styles.emptyText}>{locationError || error}</Text>
-      
-      <View style={styles.errorButtonsContainer}>
-        <TouchableOpacity style={styles.emptyButton} onPress={handleRetry}>
-          <Ionicons name="refresh" size={18} color="#fff" />
-          <Text style={styles.emptyButtonText}>Try Again</Text>
-        </TouchableOpacity>
+    if (!result.didCancel && result.assets?.length > 0) {
+      const newImages = result.assets.map((img: any) => ({
+        uri: img.uri,
+        type: img.type || "image/jpeg",
+        name: img.fileName || `upload_${Date.now()}.jpg`,
+      }));
+
+      setImages([...images, ...newImages]);
+    }
+  };
+
+  // Remove Image (only in create mode)
+  const removeImage = (index: number) => {
+    setImages(images.filter((_, i) => i !== index));
+  };
+
+  // Basic Validations
+  const validateForm = () => {
+    if (!form.title.trim()) return "Title is required";
+    if (!form.price.trim()) return "Price is required";
+    if (!form.category_id) return "Please select a category";
+    if (!form.province) return "Please select a province";
+    
+    // Images only required when creating (not editing)
+    if (!editMode && images.length === 0) return "Please upload at least one image";
+
+    return "";
+  };
+
+  // Submit to API
+  const handleSubmit = async () => {
+    const errorMsg = validateForm();
+    if (errorMsg) {
+      setErrors(errorMsg);
+      Toast.show({
+        type: "error",
+        text1: "Validation Error",
+        text2: errorMsg,
+        position: "top",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const token = await AsyncStorage.getItem("authToken");
+      console.log(token)
+
+      let res;
+      if (editMode && listingId) {
+        // Update existing listing - Send as JSON (no images in edit mode)
+        const jsonData = {
+          title: form.title,
+          breed: form.breed,
+          description: form.description,
+          age: form.age,
+          color: form.color,
+          weight: form.weight,
+          height: form.height,
+          price: form.price,
+          health_status: form.health_status,
+          country: form.country,
+          province: form.province,
+          address: form.address,
+          latitude: form.latitude,
+          longitude: form.longitude,
+          category_id: Number(form.category_id),
+          custom_button: form.custom_button,
+          _method: "PUT", // Laravel method spoofing
+        };
         
-        {(permissionStatus === 'never_ask_again' || permissionStatus === 'denied' || locationError?.includes('Settings') || locationError?.includes('GPS')) && (
-          <TouchableOpacity style={styles.settingsButton} onPress={openSettings}>
-            <Ionicons name="settings-outline" size={18} color={THEME_COLOR} />
-            <Text style={styles.settingsButtonText}>Open Settings</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
+        res = await axios.put(
+         
+          `https://mandimore.com/v1/products/${listingId}`,
+          jsonData,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+      } else {
+        // Create new listing - Send as FormData (with images)
+        const data = new FormData();
+
+        // Add fields
+        Object.keys(form).forEach((key) => {
+          if (key === "category_id") {
+            data.append(key, Number(form[key as keyof ProductFormData]));
+          } else {
+            data.append(key, form[key as keyof ProductFormData]);
+          }
+        });
+
+        // Add all images
+        if (images.length > 0) {
+          images.forEach((image) => {
+            data.append("images[]", image);
+          });
+        }
+
+        res = await axios.post("https://mandimore.com/v1/products", data, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            "Accept": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      }
+
+      console.log(editMode ? "Product Updated:" : "Product Created:", res.data);
+      
+      Toast.show({
+        type: "success",
+        text1: "Success!",
+        text2: editMode ? "Listing updated successfully!" : "Listing created successfully!",
+        position: "top",
+      });
+      
+      if (!editMode) {
+        resetForm();
+      }
+      
+      onClose();
+      
+      // Call onSubmit callback
+      if (onSubmit) {
+        onSubmit();
+      }
+    } catch (error: any) {
+      console.log("Error:", error.response?.data || error.message);
+      const errorMessage = error.response?.data?.message || "Something went wrong";
+      setErrors(errorMessage);
+      
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: errorMessage,
+        position: "top",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <View style={styles.headerIconWrapper}>
-              <Ionicons name="location" size={20} color="#fff" />
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalWrapper}>
+        <View style={styles.modalBox}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Header */}
+            <View style={styles.headerContainer}>
+              <Text style={styles.header}>{editMode ? "Edit Listing" : "Create Listing"}</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={28} color="#666" />
+              </TouchableOpacity>
             </View>
-            <View>
-              <Text style={styles.headerTitle}>Nearby Pets</Text>
-              <Text style={styles.headerSubtitle}>
-                {userLocation
-                  ? `${products.length} found within ${selectedRadius} km`
-                  : 'Finding your location...'}
-              </Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={24} color="#333" />
-          </TouchableOpacity>
-        </View>
 
-        {/* Radius Selector */}
-        {renderRadiusSelector()}
+            {errors ? <Text style={styles.error}>{errors}</Text> : null}
 
-        {/* Content */}
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={THEME_COLOR} />
-            <Text style={styles.loadingText}>
-              {userLocation ? 'Finding nearby pets...' : 'Getting your location...'}
-            </Text>
-            <Text style={styles.loadingSubText}>
-              Please make sure location/GPS is enabled
-            </Text>
-          </View>
-        ) : error || locationError ? (
-          renderError()
-        ) : (
-          <FlatList
-            data={products}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderProductItem}
-            numColumns={2}
-            columnWrapperStyle={styles.row}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={renderEmpty}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                colors={[THEME_COLOR]}
-                tintColor={THEME_COLOR}
+            {/* Image Upload Section - Only show in CREATE mode */}
+            {!editMode && (
+              <View style={styles.imageSection}>
+                <Text style={styles.sectionTitle}>Product Images</Text>
+                
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
+                  {/* Existing Images */}
+                  {images.map((img, index) => (
+                    <View key={index} style={styles.imageItem}>
+                      <Image source={{ uri: img.uri }} style={styles.uploadedImage} />
+                      <TouchableOpacity
+                        style={styles.removeImageButton}
+                        onPress={() => removeImage(index)}
+                      >
+                        <Ionicons name="close-circle" size={24} color="#ff3b30" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+
+                  {/* Add More Images Button */}
+                  {images.length < 5 && (
+                    <TouchableOpacity style={styles.addImageButton} onPress={pickImages}>
+                      <Ionicons name="add-circle-outline" size={40} color="#f1641e" />
+                      <Text style={styles.addImageText}>Add Image</Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+                
+                <Text style={styles.imageHint}>
+                  {images.length}/5 images • Tap + to add images
+                </Text>
+              </View>
+            )}
+
+            {/* Edit Mode Notice */}
+            {editMode && (
+              <View style={styles.editNotice}>
+                <Ionicons name="information-circle" size={20} color="#f1641e" />
+                <Text style={styles.editNoticeText}>
+                  Editing listing details. Images cannot be changed.
+                </Text>
+              </View>
+            )}
+
+            {/* Basic Information */}
+            <Text style={styles.sectionTitle}>Basic Information</Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Title *</Text>
+              <TextInput
+                placeholder="Enter product title"
+                style={styles.input}
+                value={form.title}
+                onChangeText={(t) => updateField("title", t)}
+                placeholderTextColor="#999"
               />
-            }
-          />
-        )}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Breed</Text>
+              <TextInput
+                placeholder="Enter breed"
+                style={styles.input}
+                value={form.breed}
+                onChangeText={(t) => updateField("breed", t)}
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Description</Text>
+              <TextInput
+                placeholder="Enter detailed description"
+                style={[styles.input, styles.textArea]}
+                value={form.description}
+                onChangeText={(t) => updateField("description", t)}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            {/* Category Horizontal Chips */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Category *</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipScroll}
+              >
+                {categories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.chip,
+                      form.category_id == cat.id && styles.chipActive,
+                    ]}
+                    onPress={() => updateField("category_id", String(cat.id))}
+                  >
+                    <Text
+                      style={
+                        form.category_id == cat.id
+                          ? styles.chipTextActive
+                          : styles.chipText
+                      }
+                    >
+                      {cat.name}
+                    </Text>
+                    {form.category_id == cat.id && (
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" style={{ marginLeft: 6 }} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Details */}
+            <Text style={styles.sectionTitle}>Details</Text>
+
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.inputLabel}>Age</Text>
+                <TextInput
+                  placeholder="e.g., 2 years"
+                  style={styles.input}
+                  value={form.age}
+                  onChangeText={(t) => updateField("age", t)}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.inputLabel}>Color</Text>
+                <TextInput
+                  placeholder="e.g., Brown"
+                  style={styles.input}
+                  value={form.color}
+                  onChangeText={(t) => updateField("color", t)}
+                  placeholderTextColor="#999"
+                />
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.inputLabel}>Weight</Text>
+                <TextInput
+                  placeholder="e.g., 25 kg"
+                  style={styles.input}
+                  value={form.weight}
+                  onChangeText={(t) => updateField("weight", t)}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.inputLabel}>Height</Text>
+                <TextInput
+                  placeholder="e.g., 60 cm"
+                  style={styles.input}
+                  value={form.height}
+                  onChangeText={(t) => updateField("height", t)}
+                  placeholderTextColor="#999"
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Health Status</Text>
+              <TextInput
+                placeholder="e.g., Vaccinated, Healthy"
+                style={styles.input}
+                value={form.health_status}
+                onChangeText={(t) => updateField("health_status", t)}
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            {/* Pricing */}
+            <Text style={styles.sectionTitle}>Pricing</Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Price *</Text>
+              <View style={styles.priceInputContainer}>
+                <Text style={styles.currencySymbol}>PKR</Text>
+                <TextInput
+                  placeholder="0"
+                  style={styles.priceInput}
+                  value={form.price}
+                  onChangeText={(t) => updateField("price", t)}
+                  keyboardType="numeric"
+                  placeholderTextColor="#999"
+                />
+              </View>
+            </View>
+
+            {/* Location */}
+            <View style={styles.locationHeader}>
+              <Text style={styles.sectionTitle}>Location</Text>
+              {locationLoading ? (
+                <ActivityIndicator size="small" color="#f1641e" />
+              ) : (
+                <TouchableOpacity onPress={fetchLocation} style={styles.refreshLocation}>
+                  <Ionicons name="location" size={18} color="#f1641e" />
+                  <Text style={styles.refreshLocationText}>Refresh Location</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Country</Text>
+              <TextInput
+                style={[styles.input, styles.disabledInput]}
+                value={form.country}
+                editable={false}
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            {/* Province Horizontal Chips */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Province *</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipScroll}
+              >
+                {PAKISTANI_PROVINCES.map((province) => (
+                  <TouchableOpacity
+                    key={province}
+                    style={[
+                      styles.chip,
+                      form.province === province && styles.chipActive,
+                    ]}
+                    onPress={() => updateField("province", province)}
+                  >
+                    <Text
+                      style={
+                        form.province === province
+                          ? styles.chipTextActive
+                          : styles.chipText
+                      }
+                    >
+                      {province}
+                    </Text>
+                    {form.province === province && (
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" style={{ marginLeft: 6 }} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Address</Text>
+              <TextInput
+                placeholder="Enter street address"
+                style={styles.input}
+                value={form.address}
+                onChangeText={(t) => updateField("address", t)}
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.inputLabel}>Latitude</Text>
+                <TextInput
+                  placeholder="Auto-filled"
+                  style={styles.input}
+                  value={form.latitude}
+                  onChangeText={(t) => updateField("latitude", t)}
+                  keyboardType="decimal-pad"
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.inputLabel}>Longitude</Text>
+                <TextInput
+                  placeholder="Auto-filled"
+                  style={styles.input}
+                  value={form.longitude}
+                  onChangeText={(t) => updateField("longitude", t)}
+                  keyboardType="decimal-pad"
+                  placeholderTextColor="#999"
+                />
+              </View>
+            </View>
+
+            {/* Optional Custom Button */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Custom Button URL (Optional)</Text>
+              <TextInput
+                placeholder="e.g., https://wa.me/1234567890"
+                style={styles.input}
+                value={form.custom_button}
+                onChangeText={(t) => updateField("custom_button", t)}
+                placeholderTextColor="#999"
+                keyboardType="url"
+                autoCapitalize="none"
+              />
+            </View>
+
+            {/* Action Buttons */}
+            <TouchableOpacity
+              style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={22} color="#fff" />
+                  <Text style={styles.submitButtonText}>
+                    {editMode ? "Update Listing" : "Create Listing"}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 20 }} />
+          </ScrollView>
+        </View>
       </View>
+      
+      {/* Toast Component */}
+      <Toast />
     </Modal>
   );
 };
 
+export default CreateOrEditProductModal;
+
 const styles = StyleSheet.create({
-  container: {
+  modalWrapper: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  modalBox: {
+    backgroundColor: "#fff",
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 20 : 16,
-    paddingBottom: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  headerIconWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: THEME_COLOR,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 2,
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  radiusContainer: {
-    backgroundColor: '#fff',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  radiusLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-    paddingHorizontal: 20,
-    marginBottom: 10,
-  },
-  radiusList: {
-    paddingHorizontal: 16,
-  },
-  radiusChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5',
-    marginHorizontal: 4,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  radiusChipActive: {
-    backgroundColor: THEME_COLOR,
-    borderColor: THEME_COLOR,
-  },
-  radiusChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-  },
-  radiusChipTextActive: {
-    color: '#fff',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500',
-  },
-  loadingSubText: {
-    marginTop: 8,
-    fontSize: 13,
-    color: '#999',
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 40,
-    flexGrow: 1,
-  },
-  row: {
-    justifyContent: 'space-between',
-  },
-
-  // Card Styles (matching HomeScreen)
-  card: {
-    width: CARD_WIDTH,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    marginBottom: 12,
-    overflow: 'hidden',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    paddingTop: 20,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    maxHeight: "94%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
     shadowRadius: 8,
+    elevation: 10,
   },
-  imageContainer: {
-    position: 'relative',
-  },
-  image: {
-    width: '100%',
-    height: 140,
-    backgroundColor: '#f0f0f0',
-  },
-  distanceBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME_COLOR,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  distanceBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '700',
-    marginLeft: 3,
-  },
-  imageBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  imageBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  cardContent: {
-    padding: 12,
-  },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  userAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginRight: 6,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  userAvatarPlaceholder: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 6,
-  },
-  userNameText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '500',
-    marginRight: 4,
-    flex: 1,
-  },
-  title: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 6,
-    lineHeight: 18,
-  },
-  breedContainer: {
-    marginBottom: 8,
-  },
-  breedBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#fff5f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#ffe0d1',
-  },
-  breedText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: THEME_COLOR,
-  },
-  detailsRow: {
-    flexDirection: 'row',
-    marginBottom: 6,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  detailText: {
-    fontSize: 11,
-    color: '#999',
-    marginLeft: 3,
-    fontWeight: '500',
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  location: {
-    fontSize: 11,
-    color: '#666',
-    marginLeft: 3,
-    flex: 1,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  price: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: THEME_COLOR,
-  },
-  healthBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f1f8f4',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  healthText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#4CAF50',
-    marginLeft: 2,
-  },
-
-  // Empty & Error States
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyIconWrapper: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 20,
   },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 8,
+  header: {
+    fontSize: 26,
+    fontWeight: "bold",
+    color: "#1a1a1a",
   },
-  emptyText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 20,
+  closeButton: {
+    padding: 4,
+  },
+  error: {
+    backgroundColor: "#fee",
+    padding: 12,
+    borderRadius: 10,
+    color: "#c00",
+    textAlign: "center",
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: "#c00",
+  },
+  
+  // Edit Mode Notice
+  editNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff5f0",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: "#f1641e",
+  },
+  editNoticeText: {
+    fontSize: 13,
+    color: "#333",
+    marginLeft: 8,
+    flex: 1,
+  },
+
+  // Image Section
+  imageSection: {
     marginBottom: 24,
   },
-  errorButtonsContainer: {
-    alignItems: 'center',
-  },
-  emptyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME_COLOR,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 25,
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
     marginBottom: 12,
+    marginTop: 8,
   },
-  emptyButtonText: {
+  imageScroll: {
+    marginBottom: 8,
+  },
+  imageItem: {
+    position: "relative",
+    marginRight: 12,
+  },
+  uploadedImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: "#f5f5f5",
+  },
+  removeImageButton: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  addImageButton: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#f1641e",
+    borderStyle: "dashed",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff9f6",
+  },
+  addImageText: {
+    color: "#f1641e",
+    fontWeight: "600",
+    marginTop: 4,
+    fontSize: 12,
+  },
+  imageHint: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+  },
+
+  // Input Fields
+  inputGroup: {
+    marginBottom: 18,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-    marginLeft: 8,
-  },
-  settingsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 25,
+    color: "#1a1a1a",
     borderWidth: 1,
-    borderColor: THEME_COLOR,
+    borderColor: "#e5e5e5",
   },
-  settingsButtonText: {
+  textArea: {
+    minHeight: 100,
+    paddingTop: 14,
+  },
+  disabledInput: {
+    backgroundColor: "#f0f0f0",
+    color: "#999",
+  },
+
+  // Horizontal Chips
+  chipScroll: {
+    marginBottom: 4,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 10,
+    borderWidth: 1.5,
+    borderColor: "#e0e0e0",
+  },
+  chipActive: {
+    backgroundColor: "#f1641e",
+    borderColor: "#f1641e",
+  },
+  chipText: {
+    fontSize: 14,
+    color: "#333",
+    fontWeight: "500",
+  },
+  chipTextActive: {
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "600",
+  },
+
+  // Row Layout
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  halfWidth: {
+    flex: 1,
+  },
+
+  // Price Input
+  priceInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+  },
+  currencySymbol: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#f1641e",
+    marginRight: 8,
+  },
+  priceInput: {
+    flex: 1,
+    paddingVertical: 14,
     fontSize: 15,
-    fontWeight: '600',
-    color: THEME_COLOR,
-    marginLeft: 8,
+    color: "#1a1a1a",
+  },
+
+  // Location
+  locationHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  refreshLocation: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  refreshLocationText: {
+    fontSize: 13,
+    color: "#f1641e",
+    fontWeight: "600",
+  },
+
+  // Buttons
+  submitButton: {
+    flexDirection: "row",
+    backgroundColor: "#f1641e",
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+    shadowColor: "#f1641e",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    gap: 8,
+  },
+  submitButtonDisabled: {
+    backgroundColor: "#ccc",
+  },
+  submitButtonText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  cancelButton: {
+    marginTop: 12,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#f5f5f5",
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+  },
+  cancelButtonText: {
+    textAlign: "center",
+    fontSize: 16,
+    color: "#666",
+    fontWeight: "600",
   },
 });
-
-export default NearbyProductsModal;
